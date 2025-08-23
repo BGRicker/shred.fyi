@@ -5,7 +5,7 @@
 export interface ChordDefinition {
   name: string;
   fingering: number[];
-  category: 'major' | 'minor';
+  category: 'major' | 'minor' | 'seventh';
   symbol: string; // Tonal.js compatible chord symbol
 }
 
@@ -96,6 +96,50 @@ export const chordDefinitions: Record<string, ChordDefinition> = {
     fingering: [-1, 2, 4, 4, 3, 2],
     category: 'minor',
     symbol: 'Bm'
+  },
+
+  // Seventh Chords (dominant 7ths)
+  'A7': {
+    name: 'A dominant 7th',
+    fingering: [-1, 0, 2, 0, 2, 0],
+    category: 'seventh',
+    symbol: 'A7'
+  },
+  'B7': {
+    name: 'B dominant 7th',
+    fingering: [-1, 2, 1, 2, 0, 2],
+    category: 'seventh',
+    symbol: 'B7'
+  },
+  'C7': {
+    name: 'C dominant 7th',
+    fingering: [-1, 3, 2, 3, 1, 0],
+    category: 'seventh',
+    symbol: 'C7'
+  },
+  'D7': {
+    name: 'D dominant 7th',
+    fingering: [-1, -1, 0, 2, 1, 2],
+    category: 'seventh',
+    symbol: 'D7'
+  },
+  'E7': {
+    name: 'E dominant 7th',
+    fingering: [0, 2, 0, 1, 0, 0],
+    category: 'seventh',
+    symbol: 'E7'
+  },
+  'F7': {
+    name: 'F dominant 7th',
+    fingering: [1, 3, 1, 2, 1, 1],
+    category: 'seventh',
+    symbol: 'F7'
+  },
+  'G7': {
+    name: 'G dominant 7th',
+    fingering: [3, 2, 0, 0, 0, 1],
+    category: 'seventh',
+    symbol: 'G7'
   }
 };
 
@@ -103,7 +147,7 @@ export const getChordNames = (): string[] => {
   return Object.keys(chordDefinitions);
 };
 
-export const getChordsByCategory = (category: 'major' | 'minor'): ChordDefinition[] => {
+export const getChordsByCategory = (category: 'major' | 'minor' | 'seventh'): ChordDefinition[] => {
   return Object.values(chordDefinitions).filter(chord => chord.category === category);
 };
 
