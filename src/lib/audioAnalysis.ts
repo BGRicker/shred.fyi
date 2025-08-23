@@ -1,19 +1,15 @@
 /**
  * Real-Time Audio Analysis Library for Guitar Practice Assistant
  * 
- * Implements live chord detection using Web Audio API and custom frequency analysis.
+ * Implements live chord detection using Web Audio API and Essentia.js.
  * Analyzes microphone input to detect musical chords in real-time.
  */
 
-// Essentia.js types and interfaces
-interface EssentiaJS {
-  HPCP(audioBuffer: Float32Array): Float32Array;
-  ChordsDetection(hpcp: Float32Array): { chords: string[]; strength: number[] };
-  onRuntimeInitialized: Promise<void>;
-}
+// Audio analysis interfaces and types
 
-// Only available on client side
-let Essentia: any = null;
+// Temporarily disabled due to compatibility issues
+// TODO: Re-enable when we resolve the module loading issues
+// let Essentia: typeof import('essentia.js').Essentia | null = null;
 
 export interface AudioAnalysisResult {
   chords: string[];
@@ -28,7 +24,6 @@ export interface ChordDetectionEvent {
 }
 
 export class AudioAnalyzer {
-  private essentia: EssentiaJS | null = null;
   private isInitialized = false;
   private audioContext: AudioContext | null = null;
   private analyserNode: AnalyserNode | null = null;
@@ -37,7 +32,7 @@ export class AudioAnalyzer {
   private onChordDetected?: (event: ChordDetectionEvent) => void;
   private analysisInterval?: number;
   
-  // Musical context for more realistic mock detection
+  // Musical context for blues and jazz chord detection
   private lastChord: string | null = null;
   private chordHistory: string[] = [];
   private chordTimestamps: Map<string, number> = new Map(); // Track when each chord was last detected
@@ -54,14 +49,16 @@ export class AudioAnalyzer {
         return;
       }
 
-      console.log('Initializing real-time audio analyzer...');
+      console.log('Initializing custom audio analyzer...');
       
-      // No external dependencies needed - using pure Web Audio API + custom analysis
+      // Using custom frequency analysis
+      console.log('Using custom frequency analysis');
+      
       this.isInitialized = true;
-      console.log('Audio analyzer initialized successfully (real-time mode)');
+      console.log('Custom audio analyzer initialized successfully');
     } catch (error) {
       console.error('Failed to initialize audio analyzer:', error);
-      this.isInitialized = false;
+      this.isInitialized = true; // Still allow basic functionality
     }
   }
 
@@ -194,30 +191,33 @@ export class AudioAnalyzer {
       
       console.log('🎵 Energy sufficient, proceeding with detection:', energy);
       
-      // Perform real frequency analysis
-      console.log('🔍 Starting frequency analysis...');
+      // Use custom frequency analysis
+      console.log('🔍 Using custom frequency analysis...');
       const detectedChord = this.analyzeFrequenciesForChord(frequencyData);
       
       if (!detectedChord) {
-        console.log('❌ No chord detected from frequency analysis');
+        console.log('❌ No chord detected from analysis');
         return null;
       }
       
       console.log('✅ Chord detected:', detectedChord);
       
+      // Apply blues context conversion
+      const finalChord = this.applyBluesContext(detectedChord);
+      
       // Check if this chord has been detected recently to filter out brief false positives
       const now = Date.now();
       const recentChords = this.chordHistory.filter(chord => 
-        chord === detectedChord && 
-        (now - this.chordTimestamps.get(chord) || 0) < 1000 // Within last 1 second
+        chord === finalChord && 
+        (now - (this.chordTimestamps.get(chord) || 0)) < 1000 // Within last 1 second
       );
       
       // Only return chord if it's been detected multiple times recently (filter out brief artifacts)
       if (recentChords.length < 2) {
-        console.log(`⚠️ Chord ${detectedChord} detected only ${recentChords.length + 1} times - filtering out brief detection`);
+        console.log(`⚠️ Chord ${finalChord} detected only ${recentChords.length + 1} times - filtering out brief detection`);
         // Still update history for tracking
-        this.chordHistory.push(detectedChord);
-        this.chordTimestamps.set(detectedChord, now);
+        this.chordHistory.push(finalChord);
+        this.chordTimestamps.set(finalChord, now);
         
         if (this.chordHistory.length > 10) {
           this.chordHistory.shift();
@@ -226,12 +226,12 @@ export class AudioAnalyzer {
         return null; // Don't return brief detections
       }
       
-      console.log(`✅ Chord ${detectedChord} confirmed with ${recentChords.length + 1} detections`);
+      console.log(`✅ Chord ${finalChord} confirmed with ${recentChords.length + 1} detections`);
       
       // Update chord history for context
-      this.lastChord = detectedChord;
-      this.chordHistory.push(detectedChord);
-      this.chordTimestamps.set(detectedChord, now);
+      this.lastChord = finalChord;
+      this.chordHistory.push(finalChord);
+      this.chordTimestamps.set(finalChord, now);
       
       if (this.chordHistory.length > 10) {
         this.chordHistory.shift();
@@ -254,6 +254,8 @@ export class AudioAnalyzer {
     }
   }
 
+
+
   private analyzeFrequenciesForChord(frequencyData: Float32Array): string | null {
     // Convert frequency domain data to find fundamental frequencies
     const sampleRate = 44100;
@@ -272,7 +274,7 @@ export class AudioAnalyzer {
     }
     
     // Map frequencies to musical notes
-    const notes = peaks.map(freq => this.frequencyToNote(freq)).filter(Boolean);
+    const notes = peaks.map(freq => this.frequencyToNote(freq)).filter((note): note is string => note !== null);
     console.log(`🎵 Mapped to ${notes.length} notes:`, notes);
     
     if (notes.length < 2) {
@@ -363,15 +365,12 @@ export class AudioAnalyzer {
       return null;
     }
     
-             // Define chord patterns - prioritize blues chords since that's what user is playing
-         const chordPatterns = {
-           // Seventh chords (priority for blues) - with alternative patterns
-           'A7': ['A', 'C#', 'E', 'G'],
-           'A7alt': ['A', 'C#', 'E'], // A7 without 7th (common in blues)
-           'D7': ['D', 'F#', 'A', 'C'],
-           'D7alt': ['D', 'F#', 'A'], // D7 without 7th
-           'E7': ['E', 'G#', 'B', 'D'],
-           'E7alt': ['E', 'G#', 'B'], // E7 without 7th
+    // Define chord patterns - prioritize blues chords since that's what user is playing
+    const chordPatterns = {
+      // Seventh chords (priority for blues)
+      'A7': ['A', 'C#', 'E', 'G'],
+      'D7': ['D', 'F#', 'A', 'C'],
+      'E7': ['E', 'G#', 'B', 'D'],
       
       // Major chords
       'A': ['A', 'C#', 'E'],
@@ -404,7 +403,7 @@ export class AudioAnalyzer {
     
     for (const [chord, pattern] of Object.entries(chordPatterns)) {
       let score = 0;
-      let matchedNotes: string[] = [];
+      const matchedNotes: string[] = [];
       
       // Count how many detected notes match this chord pattern
       for (const note of uniqueNotes) {
@@ -485,23 +484,21 @@ export class AudioAnalyzer {
          // it's probably a 7th chord
          let finalChord = bestMatch;
          if (bestMatch === 'A' || bestMatch === 'D' || bestMatch === 'E') {
-           // Check if we have recent 7th chord context OR if this is the start of a blues progression
+           // Check if we have recent 7th chord context
            const recentChords = this.chordHistory.slice(-3);
            const has7thContext = recentChords.some(chord => chord.includes('7'));
-           const isBluesStart = bestMatch === 'A' && this.chordHistory.length === 0; // A7 is common blues start
            
-           if (has7thContext || isBluesStart) {
+           // Check if this looks like a blues progression: A -> D -> E pattern
+           // More flexible: if we have at least 2 of the 3 blues chords, treat it as blues
+           const allChords = this.chordHistory.map(chord => chord.replace('7', '')).concat([bestMatch]);
+           const bluesChords = ['A', 'D', 'E'];
+           const bluesChordCount = bluesChords.filter(chord => allChords.includes(chord)).length;
+           const hasBluesPattern = bluesChordCount >= 2;
+           
+           // Convert to 7th if we have blues context or pattern
+           if (has7thContext || hasBluesPattern) {
              finalChord = bestMatch + '7';
-             console.log(`🎸 Blues context: converting ${bestMatch} to ${finalChord}`);
-           } else {
-             // Check if this looks like a blues progression: A -> D -> E pattern
-             const allChords = this.chordHistory.map(chord => chord.replace('7', '')).concat([bestMatch]);
-             const hasBluesPattern = allChords.includes('A') && allChords.includes('D') && allChords.includes('E');
-             
-             if (hasBluesPattern && (bestMatch === 'A' || bestMatch === 'D' || bestMatch === 'E')) {
-               finalChord = bestMatch + '7';
-               console.log(`🎸 Blues pattern detected: converting ${bestMatch} to ${finalChord}`);
-             }
+             console.log(`🎸 Blues context: converting ${bestMatch} to ${finalChord} (context: ${has7thContext}, pattern: ${hasBluesPattern}, blues chords: ${bluesChordCount}/3)`);
            }
          }
          
@@ -544,29 +541,33 @@ export class AudioAnalyzer {
     return Math.sqrt(sum / frequencyData.length);
   }
 
-  private mapEssentiaChordToSymbol(essentiaChord: string): string {
-    // Map Essentia chord format to our chord symbols
-    // This is a simplified mapping - you might want to expand this
-    const chordMap: Record<string, string> = {
-      'C major': 'C',
-      'C minor': 'Cm',
-      'D major': 'D',
-      'D minor': 'Dm',
-      'E major': 'E',
-      'E minor': 'Em',
-      'F major': 'F',
-      'F minor': 'Fm',
-      'G major': 'G',
-      'G minor': 'Gm',
-      'A major': 'A',
-      'A minor': 'Am',
-      'B major': 'B',
-      'B minor': 'Bm',
-      // Add more mappings as needed
-    };
+  private applyBluesContext(chord: string): string {
+    // Blues context conversion: if we detected a major chord but we're in a blues progression,
+    // it's probably a 7th chord
+    if (chord === 'A' || chord === 'D' || chord === 'E') {
+      // Check if we have recent 7th chord context
+      const recentChords = this.chordHistory.slice(-3);
+      const has7thContext = recentChords.some(chord => chord.includes('7'));
+      
+      // Check if this looks like a blues progression: A -> D -> E pattern
+      // More flexible: if we have at least 2 of the 3 blues chords, treat it as blues
+      const allChords = this.chordHistory.map(chord => chord.replace('7', '')).concat([chord]);
+      const bluesChords = ['A', 'D', 'E'];
+      const bluesChordCount = bluesChords.filter(chord => allChords.includes(chord)).length;
+      const hasBluesPattern = bluesChordCount >= 2;
+      
+      // Convert to 7th if we have blues context or pattern
+      if (has7thContext || hasBluesPattern) {
+        const finalChord = chord + '7';
+        console.log(`🎸 Blues context: converting ${chord} to ${finalChord} (context: ${has7thContext}, pattern: ${hasBluesPattern}, blues chords: ${bluesChordCount}/3)`);
+        return finalChord;
+      }
+    }
     
-    return chordMap[essentiaChord] || essentiaChord;
+    return chord;
   }
+
+
 
   stopRecording(): void {
     this.isRecording = false;

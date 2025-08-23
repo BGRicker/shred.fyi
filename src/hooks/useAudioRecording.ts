@@ -30,7 +30,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
   });
 
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
-  const currentChordTimeoutRef = useRef<number>();
+  const currentChordTimeoutRef = useRef<number | null>(null);
 
   // Initialize audio analyzer (browser only)
   useEffect(() => {
@@ -52,7 +52,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
       }
     };
     
-    // Add a small delay to allow Essentia to initialize
+    // Add a small delay to allow audio analyzer to initialize
     setTimeout(checkReady, 500);
 
     return () => {

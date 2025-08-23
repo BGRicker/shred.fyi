@@ -14,6 +14,20 @@ const nextConfig: NextConfig = {
       asyncWebAssembly: true,
     };
 
+    // Handle WASM file loading
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: 'asset/resource',
+    });
+
+    // Fix for Essentia.js browser compatibility
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      path: false,
+      crypto: false,
+    };
+
     return config;
   },
   // Turbopack configuration
