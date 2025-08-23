@@ -123,6 +123,53 @@ A web application that listens to guitar playing through the microphone, detects
 
 ---
 
+---
+
+## Implementation Progress
+
+### ✅ Completed Features (v0.1.0)
+
+#### 1. Basic Fretboard Visualization
+* **Framework Setup**: Next.js 15 with React 19, Tailwind CSS v4
+* **Component**: `react-guitar` library integrated with legacy peer deps
+* **UI**: Clean, responsive design with dark mode support
+* **Display**: Shows A minor chord by default with proper fingering visualization
+* **Layout**: Guitar-centric minimalist design with fretboard prominently displayed
+
+### 🚧 Current Development Priority
+
+#### 2. Interactive Fretboard Controls
+* **Next**: Add chord selector dropdown or buttons for common chords
+* **Goal**: Allow users to manually select different chords to see fingerings
+* **Chords to support**: Major/minor triads (C, D, E, F, G, A, B in both major/minor)
+
+### 📋 Upcoming Features (Priority Order)
+
+#### 3. Music Theory Integration
+* Install and integrate **Tonal.js** for chord/scale analysis
+* Add scale suggestions based on current chord
+* Implement chord tone highlighting
+
+#### 4. Audio Capture Foundation
+* Set up Web Audio API for microphone access
+* Install **Essentia.js** for audio analysis
+* Create basic audio input detection
+
+#### 5. Real-time Chord Detection
+* Implement chord recognition from audio input
+* Update fretboard display based on detected chords
+
+---
+
+## Technical Decisions Made
+
+* **Fretboard Library**: `react-guitar` (600+ stars, stable despite age)
+* **Styling**: Tailwind CSS v4 with custom gradient backgrounds
+* **State Management**: React hooks (no external state library needed yet)
+* **Development**: Running on localhost:3001 (port 3000 was occupied)
+
+---
+
 ## Open Questions
 
 * How accurate does v1 need to be (basic triads vs. full jazz chords)?
