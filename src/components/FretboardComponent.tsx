@@ -4,12 +4,12 @@ import React from 'react';
 import Guitar from 'react-guitar';
 
 interface FretboardComponentProps {
-  strings?: number[];
+  strings: number[];
   className?: string;
 }
 
 const FretboardComponent: React.FC<FretboardComponentProps> = ({
-  strings = [0, 1, 2, 2, 0, -1], // Default A minor chord
+  strings,
   className = '',
 }) => {
   return (

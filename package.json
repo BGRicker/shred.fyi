@@ -13,7 +13,8 @@
     "next": "15.5.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "react-guitar": "^1.1.2"
+    "react-guitar": "^1.1.2",
+    "tonal": "^6.4.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -1,6 +1,29 @@
+'use client';
+
+import React, { useState, useMemo } from 'react';
 import FretboardComponent from '@/components/FretboardComponent';
+import ChordSelector from '@/components/ChordSelector';
+import ScaleSuggestions from '@/components/ScaleSuggestions';
+import { chordDefinitions } from '@/lib/chords';
+import { getScaleSuggestions } from '@/lib/musicTheory';
 
 export default function Home() {
+  const [selectedChord, setSelectedChord] = useState<string>('Am');
+
+  const currentChordData = chordDefinitions[selectedChord];
+  
+  // Get scale suggestions for the current chord
+  const scaleSuggestions = useMemo(() => {
+    if (currentChordData?.symbol) {
+      return getScaleSuggestions(currentChordData.symbol);
+    }
+    return [];
+  }, [currentChordData?.symbol]);
+
+  const handleChordChange = (chordKey: string) => {
+    setSelectedChord(chordKey);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       <div className="container mx-auto px-4 py-8">
@@ -22,8 +45,19 @@ export default function Home() {
               Current Chord
             </h2>
             <div className="text-4xl font-bold text-blue-600 dark:text-blue-400">
-              A minor
+              {currentChordData?.name || 'Unknown'}
             </div>
+          </div>
+
+          {/* Chord Selector */}
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
+            <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-4">
+              Select Chord
+            </h3>
+            <ChordSelector
+              selectedChord={selectedChord}
+              onChordChange={handleChordChange}
+            />
           </div>
 
           {/* Fretboard */}
@@ -32,8 +66,16 @@ export default function Home() {
               Fretboard
             </h3>
             <div className="overflow-x-auto">
-              <FretboardComponent />
+              <FretboardComponent strings={currentChordData?.fingering || [-1, -1, -1, -1, -1, -1]} />
             </div>
+          </div>
+
+          {/* Scale Suggestions */}
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
+            <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-4">
+              Suggested Scales for {currentChordData?.name || 'Unknown Chord'}
+            </h3>
+            <ScaleSuggestions suggestions={scaleSuggestions} />
           </div>
 
           {/* Controls */}
@@ -41,8 +83,11 @@ export default function Home() {
             <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors">
               Start Recording
             </button>
-            <button className="bg-slate-600 hover:bg-slate-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors">
-              Clear Fretboard
+            <button 
+              className="bg-slate-600 hover:bg-slate-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+              onClick={() => setSelectedChord('Am')}
+            >
+              Reset to A minor
             </button>
           </div>
         </main>
