@@ -30,7 +30,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
   });
 
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
-  const currentChordTimeoutRef = useRef<number | null>(null);
+  const currentChordTimeoutRef = useRef<number | undefined>(undefined);
 
   // Initialize audio analyzer (browser only)
   useEffect(() => {
