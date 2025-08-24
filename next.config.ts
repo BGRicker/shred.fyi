@@ -1,8 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  webpack: (config, { isServer }) => {
-    // Handle WASM files for potential future use
+  // Fix lockfile warning by setting output file tracing root
+  outputFileTracingRoot: process.cwd(),
+  
+  webpack: (config) => {
+    // Keep asyncWebAssembly for potential future WASM usage
     config.experiments = {
       ...config.experiments,
       asyncWebAssembly: true,
@@ -10,8 +13,6 @@ const nextConfig: NextConfig = {
 
     return config;
   },
-  // Fix for Next.js lockfile warning
-  outputFileTracingRoot: process.cwd(),
 };
 
 export default nextConfig;

@@ -75,8 +75,7 @@ export function getScaleSuggestions(chordSymbol: string): ScaleSuggestion[] {
       })
       .slice(0, 6); // Limit to top 6 suggestions
 
-  } catch (error) {
-    console.error('Error getting scale suggestions:', error);
+  } catch {
     return [];
   }
 }
@@ -107,7 +106,7 @@ export function getKeySignature(scaleName: string): string {
   try {
     const scale = Scale.get(scaleName);
     return scale.tonic || '';
-  } catch (error) {
+  } catch {
     return '';
   }
 }
@@ -119,7 +118,7 @@ export function formatChordName(chordSymbol: string): string {
   try {
     const chord = Chord.get(chordSymbol);
     return chord.symbol || chordSymbol;
-  } catch (error) {
+  } catch {
     return chordSymbol;
   }
 }
