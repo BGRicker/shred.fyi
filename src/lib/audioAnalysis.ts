@@ -202,8 +202,8 @@ export class AudioAnalyzer {
       
       console.log('✅ Chord detected:', detectedChord);
       
-      // Apply blues context conversion
-      const finalChord = this.applyBluesContext(detectedChord);
+      // NO MORE FAKING - return exactly what we detected
+      const finalChord = detectedChord;
       
       // Check if this chord has been detected recently to filter out brief false positives
       const now = Date.now();
@@ -241,7 +241,7 @@ export class AudioAnalyzer {
       const confidence = Math.min(0.95, Math.max(0.4, energy * 20 + 0.3));
       
       const result = {
-        chord: detectedChord,
+        chord: finalChord, // Use finalChord instead of detectedChord
         confidence,
         timestamp: now,
       };
@@ -365,147 +365,58 @@ export class AudioAnalyzer {
       return null;
     }
     
-    // Define chord patterns - prioritize blues chords since that's what user is playing
-    const chordPatterns = {
-      // Seventh chords (priority for blues)
-      'A7': ['A', 'C#', 'E', 'G'],
-      'D7': ['D', 'F#', 'A', 'C'],
-      'E7': ['E', 'G#', 'B', 'D'],
-      
-      // Major chords
-      'A': ['A', 'C#', 'E'],
-      'D': ['D', 'F#', 'A'],
-      'E': ['E', 'G#', 'B'],
-      'C': ['C', 'E', 'G'],
-      'F': ['F', 'A', 'C'],
-      'G': ['G', 'B', 'D'],
-      'B': ['B', 'D#', 'F#'],
-      
-      // Minor chords
-      'Am': ['A', 'C', 'E'],
-      'Dm': ['D', 'F', 'A'],
-      'Em': ['E', 'G', 'B'],
-      'Bm': ['B', 'D', 'F#'],
-      'Cm': ['C', 'D#', 'G'],
-      'Fm': ['F', 'G#', 'C'],
-      'Gm': ['G', 'A#', 'D'],
-      
-      // Additional seventh chords
-      'B7': ['B', 'D#', 'F#', 'A'],
-      'C7': ['C', 'E', 'G', 'A#'],
-      'F7': ['F', 'A', 'C', 'D#'],
-      'G7': ['G', 'B', 'D', 'F'],
-    };
+    // ACCURATE DETECTION: Only return 7th chords when we actually detect the 7th note
     
-    let bestMatch = '';
-    let bestScore = 0;
-    let bestMatchDetails = '';
-    
-    for (const [chord, pattern] of Object.entries(chordPatterns)) {
-      let score = 0;
-      const matchedNotes: string[] = [];
-      
-      // Count how many detected notes match this chord pattern
-      for (const note of uniqueNotes) {
-        if (pattern.includes(note)) {
-          score += 1;
-          matchedNotes.push(note);
-        }
-      }
-      
-      // Strong bonus for having the root note (bass note)
-      if (uniqueNotes.includes(pattern[0])) {
-        score += 1; // Increased bonus
-      }
-      
-      // Penalty for extra notes that don't belong to the chord
-      const extraNotes = uniqueNotes.filter(note => !pattern.includes(note));
-      const penalty = extraNotes.length * 0.5;
-      score -= penalty;
-      
-      // Calculate match percentage
-      const matchPercentage = score / pattern.length;
-      
-               // Prioritize complete matches and root note presence
-         if (matchedNotes.length >= 2 && uniqueNotes.includes(pattern[0])) {
-           // Calculate a better scoring system
-           let adjustedScore = matchPercentage;
-           
-           // Bonus for root note presence
-           adjustedScore += 0.2;
-           
-           // Bonus for complete matches (4/4 vs 2/4 notes)
-           if (matchedNotes.length === pattern.length) {
-             adjustedScore += 0.3; // Perfect match bonus
-           } else if (matchedNotes.length >= pattern.length * 0.75) {
-             adjustedScore += 0.2; // Near complete match
-           }
-           
-           // Special bonus for 7th chords when we have 4 notes
-           if (pattern.length === 4 && matchedNotes.length >= 3) {
-             // Only give 7th chord bonus if we're missing exactly 1 note (not extra notes)
-             const missingNotes = pattern.filter(note => !matchedNotes.includes(note));
-             if (missingNotes.length === 1) {
-               adjustedScore += 0.2; // Reduced 7th chord bonus
-             }
-           }
-           
-           // Special logic for blues 7th chords - if we detect the triad, prefer 7th over major
-           if (pattern.length === 3 && matchedNotes.length === 3) {
-             // Check if this could be a 7th chord without the 7th note
-             const chordName = chord;
-             if (chordName === 'A' && uniqueNotes.includes('A') && uniqueNotes.includes('C#') && uniqueNotes.includes('E')) {
-               // This looks like A major, but in blues context, it's probably A7
-               adjustedScore += 0.3; // Blues context bonus
-             } else if (chordName === 'D' && uniqueNotes.includes('D') && uniqueNotes.includes('F#') && uniqueNotes.includes('A')) {
-               // This looks like D major, but in blues context, it's probably D7
-               adjustedScore += 0.3; // Blues context bonus
-             } else if (chordName === 'E' && uniqueNotes.includes('E') && uniqueNotes.includes('G#') && uniqueNotes.includes('B')) {
-               // This looks like E major, but in blues context, it's probably E7
-               adjustedScore += 0.3; // Blues context bonus
-             }
-           }
-        
-        // Penalty for extra notes that don't belong
-        const extraNotes = uniqueNotes.filter(note => !pattern.includes(note));
-        adjustedScore -= extraNotes.length * 0.1;
-        
-        if (adjustedScore > bestScore) {
-          bestScore = adjustedScore;
-          bestMatch = chord;
-          bestMatchDetails = `${chord}: matched ${matchedNotes.join(',')} from ${pattern.join(',')} (score: ${adjustedScore.toFixed(2)}, completeness: ${(matchedNotes.length / pattern.length * 100).toFixed(0)}%, root: ✓)`;
-        }
-      }
+    // Check for full 7th chords (with the 7th note)
+    if (uniqueNotes.includes('A') && uniqueNotes.includes('C#') && uniqueNotes.includes('E') && uniqueNotes.includes('G')) {
+      console.log('🎸 Full A7 detected (A, C#, E, G)');
+      return 'A7';
     }
     
-             console.log(`Best chord match: ${bestMatchDetails}`);
-         
-         // Blues context conversion: if we detected a major chord but we're in a blues progression,
-         // it's probably a 7th chord
-         let finalChord = bestMatch;
-         if (bestMatch === 'A' || bestMatch === 'D' || bestMatch === 'E') {
-           // Check if we have recent 7th chord context
-           const recentChords = this.chordHistory.slice(-3);
-           const has7thContext = recentChords.some(chord => chord.includes('7'));
-           
-           // Check if this looks like a blues progression: A -> D -> E pattern
-           // More flexible: if we have at least 2 of the 3 blues chords, treat it as blues
-           const allChords = this.chordHistory.map(chord => chord.replace('7', '')).concat([bestMatch]);
-           const bluesChords = ['A', 'D', 'E'];
-           const bluesChordCount = bluesChords.filter(chord => allChords.includes(chord)).length;
-           const hasBluesPattern = bluesChordCount >= 2;
-           
-           // Convert to 7th if we have blues context or pattern
-           if (has7thContext || hasBluesPattern) {
-             finalChord = bestMatch + '7';
-             console.log(`🎸 Blues context: converting ${bestMatch} to ${finalChord} (context: ${has7thContext}, pattern: ${hasBluesPattern}, blues chords: ${bluesChordCount}/3)`);
-           }
-         }
-         
-         // Only return match if confidence is high enough
-         // Higher threshold for 7th chords to avoid false positives
-         const requiredThreshold = finalChord.includes('7') ? 0.6 : 0.5;
-         return bestScore > requiredThreshold ? finalChord : null;
+    if (uniqueNotes.includes('D') && uniqueNotes.includes('F#') && uniqueNotes.includes('A') && uniqueNotes.includes('C')) {
+      console.log('🎸 Full D7 detected (D, F#, A, C)');
+      return 'D7';
+    }
+    
+    if (uniqueNotes.includes('E') && uniqueNotes.includes('G#') && uniqueNotes.includes('B') && uniqueNotes.includes('D')) {
+      console.log('🎸 Full E7 detected (E, G#, B, D)');
+      return 'E7';
+    }
+    
+    // Check for major chords (triads only)
+    if (uniqueNotes.includes('A') && uniqueNotes.includes('C#') && uniqueNotes.includes('E')) {
+      console.log('🎵 A major triad detected (A, C#, E)');
+      return 'A';
+    }
+    
+    if (uniqueNotes.includes('D') && uniqueNotes.includes('F#') && uniqueNotes.includes('A')) {
+      console.log('🎵 D major triad detected (D, F#, A)');
+      return 'D';
+    }
+    
+    if (uniqueNotes.includes('E') && uniqueNotes.includes('G#') && uniqueNotes.includes('B')) {
+      console.log('🎵 E major triad detected (E, G#, B)');
+      return 'E';
+    }
+    
+    // Check for minor chords
+    if (uniqueNotes.includes('A') && uniqueNotes.includes('C') && uniqueNotes.includes('E')) {
+      console.log('🎵 Am minor triad detected (A, C, E)');
+      return 'Am';
+    }
+    
+    if (uniqueNotes.includes('D') && uniqueNotes.includes('F') && uniqueNotes.includes('A')) {
+      console.log('🎵 Dm minor triad detected (D, F, A)');
+      return 'Dm';
+    }
+    
+    if (uniqueNotes.includes('E') && uniqueNotes.includes('G') && uniqueNotes.includes('B')) {
+      console.log('🎵 Em minor triad detected (E, G, B)');
+      return 'Em';
+    }
+    
+    console.log('❌ No chord match found for notes:', uniqueNotes);
+    return null;
   }
 
   private calculateTimeDomainEnergy(timeData: Uint8Array): number {
@@ -540,34 +451,6 @@ export class AudioAnalyzer {
     }
     return Math.sqrt(sum / frequencyData.length);
   }
-
-  private applyBluesContext(chord: string): string {
-    // Blues context conversion: if we detected a major chord but we're in a blues progression,
-    // it's probably a 7th chord
-    if (chord === 'A' || chord === 'D' || chord === 'E') {
-      // Check if we have recent 7th chord context
-      const recentChords = this.chordHistory.slice(-3);
-      const has7thContext = recentChords.some(chord => chord.includes('7'));
-      
-      // Check if this looks like a blues progression: A -> D -> E pattern
-      // More flexible: if we have at least 2 of the 3 blues chords, treat it as blues
-      const allChords = this.chordHistory.map(chord => chord.replace('7', '')).concat([chord]);
-      const bluesChords = ['A', 'D', 'E'];
-      const bluesChordCount = bluesChords.filter(chord => allChords.includes(chord)).length;
-      const hasBluesPattern = bluesChordCount >= 2;
-      
-      // Convert to 7th if we have blues context or pattern
-      if (has7thContext || hasBluesPattern) {
-        const finalChord = chord + '7';
-        console.log(`🎸 Blues context: converting ${chord} to ${finalChord} (context: ${has7thContext}, pattern: ${hasBluesPattern}, blues chords: ${bluesChordCount}/3)`);
-        return finalChord;
-      }
-    }
-    
-    return chord;
-  }
-
-
 
   stopRecording(): void {
     this.isRecording = false;
