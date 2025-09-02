@@ -46,7 +46,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
     if (chords.length === 0) return [];
 
     const groups: { chord: string; startTime: number; confidence: number }[] = [];
-    const windowSize = 2000; // 2 seconds
+    const windowSize = 4000; // 4 seconds (2 bars at 120 BPM)
 
     let currentGroup: ChordDetectionEvent[] = [];
     let windowStart = 0;

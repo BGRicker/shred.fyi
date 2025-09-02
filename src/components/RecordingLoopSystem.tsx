@@ -687,9 +687,18 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       let hasDetectedSound = false;
       let silenceStartTime: number | null = null;
       let lastSoundLevel = 0;
+      const countdownClearTime = Date.now() + 1000; // Wait 1 second after countdown to start detection
       
       const detectSilence = () => {
         if (!isRecordingAudio || !analyser) return;
+        
+        // Don't start detecting until countdown audio has cleared
+        if (Date.now() < countdownClearTime) {
+          if (isRecordingAudio) {
+            requestAnimationFrame(detectSilence);
+          }
+          return;
+        }
         
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(dataArray);
