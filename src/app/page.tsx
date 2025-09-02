@@ -3,8 +3,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import FretboardComponent from '@/components/FretboardComponent';
 import ChordSelector from '@/components/ChordSelector';
-import ScaleSuggestions from '@/components/ScaleSuggestions';
 import ChordProgression from '@/components/ChordProgression';
+import ScaleSuggestions from '@/components/ScaleSuggestions';
+import RecordingLoopSystem from '@/components/RecordingLoopSystem';
 import { chordDefinitions } from '@/lib/chords';
 import { getScaleSuggestions, analyzeProgression } from '@/lib/musicTheory';
 import { useAudioRecording } from '@/hooks/useAudioRecording';
@@ -103,7 +104,23 @@ export default function Home() {
     }
     
     return roots;
-  }, [activeChord, progressionAnalysis]);
+  }, [activeChord, progressionAnalysis?.keySignature]);
+
+  // Debug logging
+  useEffect(() => {
+    console.log('Fretboard Debug:', {
+      highlightMode,
+      activeChord,
+      scaleSuggestions: scaleSuggestions.length,
+      progressionAnalysis: progressionAnalysis ? 'exists' : 'null',
+      highlightedNotes: highlightedNotes.length,
+      rootNotes: rootNotes.length
+    });
+    
+    if (highlightedNotes.length > 0) {
+      console.log('Highlighted Notes:', highlightedNotes);
+    }
+  }, [highlightMode, activeChord, scaleSuggestions, progressionAnalysis, highlightedNotes, rootNotes]);
 
   const handleChordChange = (chordKey: string) => {
     setSelectedChord(chordKey);
@@ -140,45 +157,14 @@ export default function Home() {
           </p>
         </header>
 
-        {/* Controls */}
-        <div className="flex justify-center flex-wrap gap-4 mb-8">
-          {!audioState.isRecording ? (
-            <button 
-              onClick={handleStartRecording}
-              disabled={audioState.isInitializing}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center space-x-2"
-            >
-              <span>🎤</span>
-              <span>{audioState.isInitializing ? 'Initializing...' : 'Start Recording'}</span>
-            </button>
-          ) : (
-            <button 
-              onClick={handleStopRecording}
-              className="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center space-x-2"
-            >
-              <span>⏹</span>
-              <span>Stop Recording</span>
-            </button>
-          )}
-          
-          <button 
-            onClick={clearChords}
-            disabled={audioState.isRecording}
-            className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
-          >
-            Clear Progression
-          </button>
-          
-          <button 
-            onClick={() => {
-              setSelectedChord('Am');
-              setMode('manual');
-            }}
-            className="bg-slate-600 hover:bg-slate-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
-          >
-            Reset to Manual
-          </button>
-        </div>
+        {/* Recording & Loop System */}
+        <RecordingLoopSystem
+          isRecording={audioState.isRecording}
+          detectedChords={audioState.detectedChords}
+          onStartRecording={handleStartRecording}
+          onStopRecording={handleStopRecording}
+          onClearRecording={clearChords}
+        />
 
         {/* Main Content */}
         <main className="space-y-8">
@@ -206,6 +192,17 @@ export default function Home() {
             <div className="text-4xl font-bold text-blue-600 dark:text-blue-400">
               {activeChordData?.name || 'Unknown'}
             </div>
+            
+            {/* Reset to Manual Button */}
+            <button 
+              onClick={() => {
+                setSelectedChord('Am');
+                setMode('manual');
+              }}
+              className="mt-4 bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+            >
+              Reset to Manual Mode
+            </button>
             
             {/* Progression Analysis Info */}
             {progressionAnalysis && (
