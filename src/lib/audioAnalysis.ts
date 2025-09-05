@@ -5,11 +5,29 @@
  * Analyzes microphone input to detect musical chords in real-time.
  */
 
-// Audio analysis interfaces and types
+import { Chord } from 'tonal';
 
-// Temporarily disabled due to compatibility issues
-// TODO: Re-enable when we resolve the module loading issues
-// let Essentia: typeof import('essentia.js').Essentia | null = null;
+const A4 = 440;
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+// Chord definitions for analysis, ordered from more specific (more notes) to less.
+const CHORD_DEFINITIONS = [
+  // Seventh Chords
+  { name: 'A7', logMessage: '🎸 Full A7 detected (A, C#, E, G)' },
+  { name: 'D7', logMessage: '🎸 Full D7 detected (D, F#, A, C)' },
+  { name: 'E7', logMessage: '🎸 Full E7 detected (E, G#, B, D)' },
+  // Major Chords
+  { name: 'A', logMessage: '🎵 A major triad detected (A, C#, E)' },
+  { name: 'D', logMessage: '🎵 D major triad detected (D, F#, A)' },
+  { name: 'E', logMessage: '🎵 E major triad detected (E, G#, B)' },
+  // Minor Chords
+  { name: 'Am', logMessage: '🎵 Am minor triad detected (A, C, E)' },
+  { name: 'Dm', logMessage: '🎵 Dm minor triad detected (D, F, A)' },
+  { name: 'Em', logMessage: '🎵 Em minor triad detected (E, G, B)' },
+].map(chord => ({
+  ...chord,
+  notes: Chord.get(chord.name).notes,
+})).sort((a, b) => b.notes.length - a.notes.length);
 
 export interface AudioAnalysisResult {
   chords: string[];
@@ -332,10 +350,6 @@ export class AudioAnalyzer {
 
   private frequencyToNote(frequency: number): string | null {
     // A4 = 440Hz reference
-    const A4 = 440;
-    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    
-    // Calculate semitones from A4
     const semitones = Math.round(12 * Math.log2(frequency / A4));
     const noteIndex = (semitones + 9 + 120) % 12; // +9 to shift A to index 9, +120 to handle negatives
     
@@ -345,77 +359,36 @@ export class AudioAnalyzer {
     
     // More permissive tolerance for 7th chord detection - accept up to 75 cents
     if (Math.abs(cents) > 75) {
-      console.log(`Frequency ${frequency.toFixed(1)}Hz rejected - ${Math.abs(cents).toFixed(1)} cents off from ${noteNames[noteIndex]}`);
+      console.log(`Frequency ${frequency.toFixed(1)}Hz rejected - ${Math.abs(cents).toFixed(1)} cents off from ${NOTE_NAMES[noteIndex]}`);
       return null;
     }
     
-    const note = noteNames[noteIndex];
+    const note = NOTE_NAMES[noteIndex];
     console.log(`${frequency.toFixed(1)}Hz -> ${note} (${cents.toFixed(1)} cents)`);
     return note;
   }
 
   private identifyChordFromNotes(notes: string[]): string | null {
-    // Remove duplicates and sort
-    const uniqueNotes = Array.from(new Set(notes));
+    // Remove duplicates
+    const uniqueNotes = new Set(notes);
     
-    console.log('Analyzing chord from notes:', uniqueNotes);
+    console.log('Analyzing chord from notes:', Array.from(uniqueNotes));
     
-    if (uniqueNotes.length < 2) {
+    if (uniqueNotes.size < 2) {
       console.log('Not enough notes for chord');
       return null;
     }
     
-    // ACCURATE DETECTION: Only return 7th chords when we actually detect the 7th note
-    
-    // Check for full 7th chords (with the 7th note)
-    if (uniqueNotes.includes('A') && uniqueNotes.includes('C#') && uniqueNotes.includes('E') && uniqueNotes.includes('G')) {
-      console.log('🎸 Full A7 detected (A, C#, E, G)');
-      return 'A7';
+    for (const chord of CHORD_DEFINITIONS) {
+      const allNotesPresent = chord.notes.every(note => uniqueNotes.has(note));
+      
+      if (allNotesPresent) {
+        console.log(chord.logMessage);
+        return chord.name;
+      }
     }
     
-    if (uniqueNotes.includes('D') && uniqueNotes.includes('F#') && uniqueNotes.includes('A') && uniqueNotes.includes('C')) {
-      console.log('🎸 Full D7 detected (D, F#, A, C)');
-      return 'D7';
-    }
-    
-    if (uniqueNotes.includes('E') && uniqueNotes.includes('G#') && uniqueNotes.includes('B') && uniqueNotes.includes('D')) {
-      console.log('🎸 Full E7 detected (E, G#, B, D)');
-      return 'E7';
-    }
-    
-    // Check for major chords (triads only)
-    if (uniqueNotes.includes('A') && uniqueNotes.includes('C#') && uniqueNotes.includes('E')) {
-      console.log('🎵 A major triad detected (A, C#, E)');
-      return 'A';
-    }
-    
-    if (uniqueNotes.includes('D') && uniqueNotes.includes('F#') && uniqueNotes.includes('A')) {
-      console.log('🎵 D major triad detected (D, F#, A)');
-      return 'D';
-    }
-    
-    if (uniqueNotes.includes('E') && uniqueNotes.includes('G#') && uniqueNotes.includes('B')) {
-      console.log('🎵 E major triad detected (E, G#, B)');
-      return 'E';
-    }
-    
-    // Check for minor chords
-    if (uniqueNotes.includes('A') && uniqueNotes.includes('C') && uniqueNotes.includes('E')) {
-      console.log('🎵 Am minor triad detected (A, C, E)');
-      return 'Am';
-    }
-    
-    if (uniqueNotes.includes('D') && uniqueNotes.includes('F') && uniqueNotes.includes('A')) {
-      console.log('🎵 Dm minor triad detected (D, F, A)');
-      return 'Dm';
-    }
-    
-    if (uniqueNotes.includes('E') && uniqueNotes.includes('G') && uniqueNotes.includes('B')) {
-      console.log('🎵 Em minor triad detected (E, G, B)');
-      return 'Em';
-    }
-    
-    console.log('❌ No chord match found for notes:', uniqueNotes);
+    console.log('❌ No chord match found for notes:', Array.from(uniqueNotes));
     return null;
   }
 
