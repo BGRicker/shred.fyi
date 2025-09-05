@@ -10,24 +10,36 @@ import { Chord } from 'tonal';
 const A4 = 440;
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-// Chord definitions for analysis, ordered from more specific (more notes) to less.
-const CHORD_DEFINITIONS = [
+// --- Chord Generation ---
+const CHORD_ROOTS = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
+const CHORD_QUALITIES = [
+  // Basic Triads
+  '', 'm',
   // Seventh Chords
-  { name: 'A7', logMessage: '🎸 Full A7 detected (A, C#, E, G)' },
-  { name: 'D7', logMessage: '🎸 Full D7 detected (D, F#, A, C)' },
-  { name: 'E7', logMessage: '🎸 Full E7 detected (E, G#, B, D)' },
-  // Major Chords
-  { name: 'A', logMessage: '🎵 A major triad detected (A, C#, E)' },
-  { name: 'D', logMessage: '🎵 D major triad detected (D, F#, A)' },
-  { name: 'E', logMessage: '🎵 E major triad detected (E, G#, B)' },
-  // Minor Chords
-  { name: 'Am', logMessage: '🎵 Am minor triad detected (A, C, E)' },
-  { name: 'Dm', logMessage: '🎵 Dm minor triad detected (D, F, A)' },
-  { name: 'Em', logMessage: '🎵 Em minor triad detected (E, G, B)' },
-].map(chord => ({
-  ...chord,
-  notes: Chord.get(chord.name).notes,
-})).sort((a, b) => b.notes.length - a.notes.length);
+  '7', 'maj7', 'm7',
+  // Extended & Altered
+  'sus2', 'sus4', 'add9', '6', 'm6', '5' // Power Chord
+];
+
+// Generate a comprehensive list of chords to detect.
+const CHORD_DEFINITIONS = CHORD_ROOTS.flatMap(root => 
+  CHORD_QUALITIES.map(quality => {
+    const name = `${root}${quality}`;
+    const chord = Chord.get(name);
+
+    // Filter out invalid or unrecognized chords
+    if (chord.empty || chord.notes.length < 2) {
+      return null;
+    }
+
+    return {
+      name: chord.symbol,
+      logMessage: `🎸 Detected ${chord.symbol}`,
+      notes: chord.notes
+    };
+  })
+).filter((c): c is NonNullable<typeof c> => c !== null)
+ .sort((a, b) => b.notes.length - a.notes.length); // IMPORTANT: check more specific chords first.
 
 export interface AudioAnalysisResult {
   chords: string[];
@@ -50,10 +62,10 @@ export class AudioAnalyzer {
   private onChordDetected?: (event: ChordDetectionEvent) => void;
   private analysisInterval?: number;
   
-  // Musical context for blues and jazz chord detection
-  private lastChord: string | null = null;
-  private chordHistory: string[] = [];
-  private chordTimestamps: Map<string, number> = new Map(); // Track when each chord was last detected
+  // New state for improved, responsive chord detection logic.
+  private lastEmittedChord: string | null = null;
+  private candidateChord: string | null = null;
+  private consecutiveDetections = 0;
 
   constructor() {
     this.initializeEssentia();
@@ -131,7 +143,7 @@ export class AudioAnalyzer {
       // Set up analyser node
       this.analyserNode = this.audioContext.createAnalyser();
       this.analyserNode.fftSize = 4096;
-      this.analyserNode.smoothingTimeConstant = 0.8;
+      this.analyserNode.smoothingTimeConstant = 0; // Set to 0 for maximum responsiveness.
       
       console.log('Analyser config:', {
         fftSize: this.analyserNode.fftSize,
@@ -147,8 +159,9 @@ export class AudioAnalyzer {
       this.isRecording = true;
       
       // Clear previous chord tracking data for new recording session
-      this.chordHistory = [];
-      this.chordTimestamps.clear();
+      this.lastEmittedChord = null;
+      this.candidateChord = null;
+      this.consecutiveDetections = 0;
       
       // Start analysis loop
       this.startAnalysisLoop();
@@ -199,72 +212,59 @@ export class AudioAnalyzer {
       // Calculate actual audio energy from time domain (amplitude)
       const energy = this.calculateTimeDomainEnergy(timeData);
       
-      console.log('Real audio analysis - energy:', energy);
-      
-      // Lower threshold for 7th chord detection
       if (energy < 0.00005) {
-        console.log('Energy too low, skipping detection:', energy);
+        // Reset detection state on silence to be ready for the next chord.
+        this.candidateChord = null;
+        this.consecutiveDetections = 0;
         return null;
       }
       
-      console.log('🎵 Energy sufficient, proceeding with detection:', energy);
-      
-      // Use custom frequency analysis
-      console.log('🔍 Using custom frequency analysis...');
       const detectedChord = this.analyzeFrequenciesForChord(frequencyData);
       
-      if (!detectedChord) {
-        console.log('❌ No chord detected from analysis');
-        return null;
-      }
-      
-      console.log('✅ Chord detected:', detectedChord);
-      
-      // NO MORE FAKING - return exactly what we detected
-      const finalChord = detectedChord;
-      
-      // Check if this chord has been detected recently to filter out brief false positives
-      const now = Date.now();
-      const recentChords = this.chordHistory.filter(chord => 
-        chord === finalChord && 
-        (now - (this.chordTimestamps.get(chord) || 0)) < 1000 // Within last 1 second
-      );
-      
-      // Only return chord if it's been detected multiple times recently (filter out brief artifacts)
-      if (recentChords.length < 2) {
-        console.log(`⚠️ Chord ${finalChord} detected only ${recentChords.length + 1} times - filtering out brief detection`);
-        // Still update history for tracking
-        this.chordHistory.push(finalChord);
-        this.chordTimestamps.set(finalChord, now);
-        
-        if (this.chordHistory.length > 10) {
-          this.chordHistory.shift();
+      // --- New, More Responsive Debouncing Logic ---
+      if (detectedChord) {
+        if (detectedChord === this.candidateChord) {
+          this.consecutiveDetections++;
+        } else {
+          this.candidateChord = detectedChord;
+          this.consecutiveDetections = 1;
         }
-        
-        return null; // Don't return brief detections
+      } else {
+        this.candidateChord = null;
+        this.consecutiveDetections = 0;
       }
       
-      console.log(`✅ Chord ${finalChord} confirmed with ${recentChords.length + 1} detections`);
+      let chordToEmit: string | null = null;
       
-      // Update chord history for context
-      this.lastChord = finalChord;
-      this.chordHistory.push(finalChord);
-      this.chordTimestamps.set(finalChord, now);
-      
-      if (this.chordHistory.length > 10) {
-        this.chordHistory.shift();
+      if (this.candidateChord) {
+        // If this is the same chord we're already displaying, emit it immediately to keep UI active.
+        if (this.candidateChord === this.lastEmittedChord) {
+          chordToEmit = this.candidateChord;
+        } 
+        // If this is a new chord, wait for 2 consecutive detections to confirm it.
+        else if (this.consecutiveDetections >= 2) {
+          chordToEmit = this.candidateChord;
+        }
       }
-      
-      // Calculate confidence based on energy and frequency clarity
-      const confidence = Math.min(0.95, Math.max(0.4, energy * 20 + 0.3));
-      
+
+      if (chordToEmit && chordToEmit !== this.lastEmittedChord) {
+        console.log(`✅ New chord confirmed: ${chordToEmit}`);
+      }
+      this.lastEmittedChord = chordToEmit;
+
+      if (!chordToEmit) {
+        if (this.candidateChord) {
+          console.log(`⏳ Candidate chord: ${this.candidateChord} (${this.consecutiveDetections} detection(s))`);
+        }
+        return null; // Nothing to emit yet
+      }
+
       const result = {
-        chord: finalChord, // Use finalChord instead of detectedChord
-        confidence,
-        timestamp: now,
+        chord: chordToEmit,
+        confidence: Math.min(0.95, Math.max(0.4, energy * 20 + 0.3)),
+        timestamp: Date.now(),
       };
       
-      console.log('Real chord detected:', result);
       return result;
     } catch (error) {
       console.error('Chord detection failed:', error);
@@ -280,72 +280,68 @@ export class AudioAnalyzer {
     const nyquist = sampleRate / 2;
     const binSize = nyquist / frequencyData.length;
     
-    console.log(`🎼 Frequency analysis: sampleRate=${sampleRate}, binSize=${binSize.toFixed(2)}Hz, dataLength=${frequencyData.length}`);
-    
     // Find peaks in the frequency spectrum
     const peaks = this.findFrequencyPeaks(frequencyData, binSize);
-    console.log(`📊 Found ${peaks.length} frequency peaks:`, peaks.map(f => f.toFixed(1) + 'Hz'));
     
     if (peaks.length < 2) {
-      console.log('⚠️ Not enough peaks for chord detection (need at least 2)');
       return null; // Need at least 2 notes for a chord
     }
     
     // Map frequencies to musical notes
     const notes = peaks.map(freq => this.frequencyToNote(freq)).filter((note): note is string => note !== null);
-    console.log(`🎵 Mapped to ${notes.length} notes:`, notes);
     
     if (notes.length < 2) {
-      console.log('⚠️ Not enough valid notes for chord detection');
       return null;
     }
     
     // Analyze the note combination to determine chord
     return this.identifyChordFromNotes(notes);
   }
-
+  
   private findFrequencyPeaks(frequencyData: Float32Array, binSize: number): number[] {
     const peaks: { frequency: number; magnitude: number }[] = [];
-    const threshold = -80; // Much lower threshold to catch subtle 7th chord harmonics
+    const threshold = -70; // A higher threshold to focus on more prominent notes.
     
-    // Debug: sample the frequency data to see what we're working with
-    const sampleIndices = [10, 50, 100, 200, 500, 1000];
-    const samples = sampleIndices.map(i => 
-      i < frequencyData.length ? `${(i * binSize).toFixed(0)}Hz: ${frequencyData[i].toFixed(1)}dB` : 'N/A'
-    );
-    console.log('🎛️ Frequency data samples:', samples.join(', '));
-    
-    // Find min/max values in frequency data
-    let minVal = Infinity, maxVal = -Infinity;
-    for (let i = 0; i < frequencyData.length; i++) {
-      minVal = Math.min(minVal, frequencyData[i]);
-      maxVal = Math.max(maxVal, frequencyData[i]);
-    }
-    console.log(`📊 Frequency range: ${minVal.toFixed(1)}dB to ${maxVal.toFixed(1)}dB`);
-    
-    for (let i = 2; i < frequencyData.length - 2; i++) {
-      // Look for stronger local maxima with more neighbors
+    // A simpler local maxima check.
+    for (let i = 1; i < frequencyData.length - 1; i++) {
       if (frequencyData[i] > threshold && 
-          frequencyData[i] > frequencyData[i - 2] && 
           frequencyData[i] > frequencyData[i - 1] && 
-          frequencyData[i] > frequencyData[i + 1] && 
-          frequencyData[i] > frequencyData[i + 2]) {
+          frequencyData[i] > frequencyData[i + 1]) {
         
         const frequency = i * binSize;
-        
-        // Focus on fundamental guitar frequency range (80Hz - 1200Hz to catch 7th chord harmonics)
-        if (frequency >= 80 && frequency <= 1200) {
+        if (frequency >= 80 && frequency <= 1200) { // Standard guitar range.
           peaks.push({ frequency, magnitude: frequencyData[i] });
         }
       }
     }
     
-    // Sort by magnitude (strongest first) and take top peaks
+    if (peaks.length === 0) return [];
+
+    // Sort by magnitude to find the strongest signals.
     peaks.sort((a, b) => b.magnitude - a.magnitude);
-    
-    console.log('Found frequency peaks:', peaks.slice(0, 4).map(p => `${p.frequency.toFixed(1)}Hz (${p.magnitude.toFixed(1)}dB)`));
-    
-    return peaks.slice(0, 6).map(p => p.frequency); // Limit to 6 strongest peaks to catch more harmonics
+    const strongestPeaks = peaks.slice(0, 12); // Consider more peaks initially for harmonic analysis.
+
+    // --- Harmonic Filtering ---
+    // Remove peaks that are likely harmonics of stronger, lower-frequency peaks.
+    const fundamentals: { frequency: number; magnitude: number }[] = [];
+    for (const peak of strongestPeaks) {
+      let isHarmonic = false;
+      for (const fundamental of fundamentals) {
+        const ratio = peak.frequency / fundamental.frequency;
+        // Check if the peak's frequency is a near-integer multiple of a stronger fundamental.
+        if (Math.abs(ratio - Math.round(ratio)) < 0.1) { 
+          isHarmonic = true;
+          break;
+        }
+      }
+
+      if (!isHarmonic) {
+        fundamentals.push(peak);
+      }
+    }
+
+    fundamentals.sort((a, b) => b.magnitude - a.magnitude);
+    return fundamentals.slice(0, 6).map(p => p.frequency); // Return the 6 strongest fundamental frequencies.
   }
 
   private frequencyToNote(frequency: number): string | null {
@@ -357,38 +353,48 @@ export class AudioAnalyzer {
     const expectedFreq = A4 * Math.pow(2, semitones / 12);
     const cents = 1200 * Math.log2(frequency / expectedFreq);
     
-    // More permissive tolerance for 7th chord detection - accept up to 75 cents
-    if (Math.abs(cents) > 75) {
-      console.log(`Frequency ${frequency.toFixed(1)}Hz rejected - ${Math.abs(cents).toFixed(1)} cents off from ${NOTE_NAMES[noteIndex]}`);
+    if (Math.abs(cents) > 50) {
+      // console.log(`Frequency ${frequency.toFixed(1)}Hz rejected - ${Math.abs(cents).toFixed(1)} cents off from ${NOTE_NAMES[noteIndex]}`);
       return null;
     }
     
     const note = NOTE_NAMES[noteIndex];
-    console.log(`${frequency.toFixed(1)}Hz -> ${note} (${cents.toFixed(1)} cents)`);
+    // console.log(`${frequency.toFixed(1)}Hz -> ${note} (${cents.toFixed(1)} cents)`);
     return note;
   }
 
   private identifyChordFromNotes(notes: string[]): string | null {
-    // Remove duplicates
     const uniqueNotes = new Set(notes);
-    
-    console.log('Analyzing chord from notes:', Array.from(uniqueNotes));
-    
-    if (uniqueNotes.size < 2) {
-      console.log('Not enough notes for chord');
-      return null;
-    }
-    
+    if (uniqueNotes.size < 2) return null;
+  
+    const scoredChords: { name: string; score: number }[] = [];
+  
     for (const chord of CHORD_DEFINITIONS) {
-      const allNotesPresent = chord.notes.every(note => uniqueNotes.has(note));
-      
-      if (allNotesPresent) {
-        console.log(chord.logMessage);
-        return chord.name;
+      const chordNotes = new Set(chord.notes);
+      const matchedNotes = [...uniqueNotes].filter(note => chordNotes.has(note));
+  
+      if (matchedNotes.length < 2) continue;
+  
+      // Score based on how well the detected notes match the chord definition.
+      const completeness = matchedNotes.length / chordNotes.size;
+      const purity = matchedNotes.length / uniqueNotes.size; // Penalizes extraneous notes.
+      const score = completeness * purity;
+  
+      if (score > 0) {
+        scoredChords.push({ name: chord.name, score });
       }
     }
+  
+    if (scoredChords.length === 0) return null;
+
+    scoredChords.sort((a, b) => b.score - a.score);
+    const bestMatch = scoredChords[0];
+
+    // Threshold for a confident match.
+    if (bestMatch && bestMatch.score >= 0.6) {
+      return bestMatch.name;
+    }
     
-    console.log('❌ No chord match found for notes:', Array.from(uniqueNotes));
     return null;
   }
 
@@ -446,8 +452,9 @@ export class AudioAnalyzer {
     this.analyserNode = null;
     
     // Reset chord history for next recording
-    this.lastChord = null;
-    this.chordHistory = [];
+    this.lastEmittedChord = null;
+    this.candidateChord = null;
+    this.consecutiveDetections = 0;
     
     console.log('Recording stopped');
   }
@@ -468,3 +475,4 @@ export class AudioAnalyzer {
     };
   }
 }
+
