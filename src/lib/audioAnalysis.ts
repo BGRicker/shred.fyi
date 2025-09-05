@@ -21,6 +21,9 @@ const CHORD_QUALITIES = [
   'sus2', 'sus4', 'add9', '6', 'm6', '5' // Power Chord
 ];
 
+const CHORD_MATCH_THRESHOLD = 0.6;
+const HARMONIC_RATIO_TOLERANCE = 0.1;
+
 // Generate a comprehensive list of chords to detect.
 const CHORD_DEFINITIONS = CHORD_ROOTS.flatMap(root => 
   CHORD_QUALITIES.map(quality => {
@@ -142,8 +145,8 @@ export class AudioAnalyzer {
       
       // Set up analyser node
       this.analyserNode = this.audioContext.createAnalyser();
-      this.analyserNode.fftSize = 4096;
-      this.analyserNode.smoothingTimeConstant = 0; // Set to 0 for maximum responsiveness.
+      this.analyserNode.fftSize = 8192;
+      this.analyserNode.smoothingTimeConstant = 0.2; // Set to 0.2 for balance between responsiveness and stability.
       
       console.log('Analyser config:', {
         fftSize: this.analyserNode.fftSize,
@@ -329,7 +332,7 @@ export class AudioAnalyzer {
       for (const fundamental of fundamentals) {
         const ratio = peak.frequency / fundamental.frequency;
         // Check if the peak's frequency is a near-integer multiple of a stronger fundamental.
-        if (Math.abs(ratio - Math.round(ratio)) < 0.1) { 
+        if (Math.abs(ratio - Math.round(ratio)) < HARMONIC_RATIO_TOLERANCE) { 
           isHarmonic = true;
           break;
         }
@@ -391,7 +394,7 @@ export class AudioAnalyzer {
     const bestMatch = scoredChords[0];
 
     // Threshold for a confident match.
-    if (bestMatch && bestMatch.score >= 0.6) {
+    if (bestMatch && bestMatch.score >= CHORD_MATCH_THRESHOLD) {
       return bestMatch.name;
     }
     
@@ -468,10 +471,11 @@ export class AudioAnalyzer {
   }
 
   // Debug method to get current chord tracking state
-  getChordTrackingState(): { history: string[], timestamps: Map<string, number> } {
+  getChordTrackingState(): { lastEmittedChord: string | null; candidateChord: string | null; consecutiveDetections: number; } {
     return {
-      history: [...this.chordHistory],
-      timestamps: new Map(this.chordTimestamps)
+      lastEmittedChord: this.lastEmittedChord,
+      candidateChord: this.candidateChord,
+      consecutiveDetections: this.consecutiveDetections,
     };
   }
 }
