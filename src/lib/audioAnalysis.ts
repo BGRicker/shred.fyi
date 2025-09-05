@@ -10,7 +10,7 @@ import { Chord } from 'tonal';
 const A4 = 440;
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-// --- Chord Generation ---
+// --- Chord Generation (moved into AudioAnalyzer for lazy initialization) ---
 const CHORD_ROOTS = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
 const CHORD_QUALITIES = [
   // Basic Triads
@@ -23,25 +23,6 @@ const CHORD_QUALITIES = [
 
 const CHORD_MATCH_THRESHOLD = 0.6;
 const HARMONIC_RATIO_TOLERANCE = 0.1;
-
-// Generate a comprehensive list of chords to detect.
-const CHORD_DEFINITIONS = CHORD_ROOTS.flatMap(root => 
-  CHORD_QUALITIES.map(quality => {
-    const name = `${root}${quality}`;
-    const chord = Chord.get(name);
-
-    // Filter out invalid or unrecognized chords
-    if (chord.empty || chord.notes.length < 2) {
-      return null;
-    }
-
-    return {
-      name: chord.symbol,
-      notes: chord.notes
-    };
-  })
-).filter((c): c is NonNullable<typeof c> => c !== null)
- .sort((a, b) => b.notes.length - a.notes.length); // IMPORTANT: check more specific chords first.
 
 export interface AudioAnalysisResult {
   chords: string[];
@@ -63,6 +44,7 @@ export class AudioAnalyzer {
   private isRecording = false;
   private onChordDetected?: (event: ChordDetectionEvent) => void;
   private analysisInterval?: number;
+  private readonly CHORD_DEFINITIONS: { name: string, notes: string[] }[];
   
   // New state for improved, responsive chord detection logic.
   private lastEmittedChord: string | null = null;
@@ -70,6 +52,23 @@ export class AudioAnalyzer {
   private consecutiveDetections = 0;
 
   constructor() {
+    this.CHORD_DEFINITIONS = CHORD_ROOTS.flatMap(root => 
+      CHORD_QUALITIES.map(quality => {
+        const name = `${root}${quality}`;
+        const chord = Chord.get(name);
+    
+        if (chord.empty || chord.notes.length < 2) {
+          return null;
+        }
+    
+        return {
+          name: chord.symbol,
+          notes: chord.notes
+        };
+      })
+    ).filter((c): c is NonNullable<typeof c> => c !== null)
+     .sort((a, b) => b.notes.length - a.notes.length);
+
     this.initializeEssentia();
   }
 
@@ -302,7 +301,7 @@ export class AudioAnalyzer {
   
   private findFrequencyPeaks(frequencyData: Float32Array, binSize: number): number[] {
     const peaks: { frequency: number; magnitude: number }[] = [];
-    const threshold = -70; // A higher threshold to focus on more prominent notes.
+    const threshold = -70; // A less permissive threshold to focus on stronger signals.
     
     // A simpler local maxima check.
     for (let i = 1; i < frequencyData.length - 1; i++) {
@@ -369,15 +368,14 @@ export class AudioAnalyzer {
   
     const scoredChords: { name: string; score: number }[] = [];
   
-    for (const chord of CHORD_DEFINITIONS) {
+    for (const chord of this.CHORD_DEFINITIONS) {
       const chordNotes = new Set(chord.notes);
       const matchedNotes = [...uniqueNotes].filter(note => chordNotes.has(note));
   
       if (matchedNotes.length < 2) continue;
   
-      // Score based on how well the detected notes match the chord definition.
       const completeness = matchedNotes.length / chordNotes.size;
-      const purity = matchedNotes.length / uniqueNotes.size; // Penalizes extraneous notes.
+      const purity = matchedNotes.length / uniqueNotes.size;
       const score = completeness * purity;
   
       if (score > 0) {
@@ -389,8 +387,9 @@ export class AudioAnalyzer {
 
     scoredChords.sort((a, b) => b.score - a.score);
     const bestMatch = scoredChords[0];
+    
+    console.log('[Debug] Top 5 chords:', scoredChords.slice(0, 5).map(c => `${c.name} (${c.score.toFixed(2)})`).join(', '));
 
-    // Threshold for a confident match.
     if (bestMatch && bestMatch.score >= CHORD_MATCH_THRESHOLD) {
       return bestMatch.name;
     }
