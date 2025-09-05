@@ -37,7 +37,6 @@ const CHORD_DEFINITIONS = CHORD_ROOTS.flatMap(root =>
 
     return {
       name: chord.symbol,
-      logMessage: `🎸 Detected ${chord.symbol}`,
       notes: chord.notes
     };
   })
@@ -357,12 +356,10 @@ export class AudioAnalyzer {
     const cents = 1200 * Math.log2(frequency / expectedFreq);
     
     if (Math.abs(cents) > 50) {
-      // console.log(`Frequency ${frequency.toFixed(1)}Hz rejected - ${Math.abs(cents).toFixed(1)} cents off from ${NOTE_NAMES[noteIndex]}`);
       return null;
     }
     
     const note = NOTE_NAMES[noteIndex];
-    // console.log(`${frequency.toFixed(1)}Hz -> ${note} (${cents.toFixed(1)} cents)`);
     return note;
   }
 
