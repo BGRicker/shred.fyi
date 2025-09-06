@@ -14,6 +14,7 @@ export default function Home() {
   const [selectedChord, setSelectedChord] = useState<string>('Am');
   const [mode, setMode] = useState<'manual' | 'recording'>('manual');
   const [highlightMode, setHighlightMode] = useState<'chord' | 'progression' | 'both'>('both');
+  const [playbackChord, setPlaybackChord] = useState<string | null>(null);
 
   // Audio recording hook
   const { state: audioState, startRecording, stopRecording, clearChords, updateDetectedChord } = useAudioRecording();
@@ -21,67 +22,64 @@ export default function Home() {
   const currentChordData = chordDefinitions[selectedChord];
   
   // Use detected chord if recording, otherwise use manually selected chord
-  const activeChord = mode === 'recording' && audioState.currentChord 
-    ? audioState.currentChord 
-    : selectedChord;
+  const activeChord = playbackChord || 
+    (mode === 'recording' && audioState.currentChord) || 
+    selectedChord;
     
   const activeChordData = chordDefinitions[activeChord] || currentChordData;
   
-  // Get scale suggestions for the active chord
-  const scaleSuggestions = useMemo(() => {
-    if (activeChordData?.symbol) {
-      return getScaleSuggestions(activeChordData.symbol);
-    }
-    return [];
-  }, [activeChordData?.symbol]);
-
   // Analyze the entire chord progression for progression-wide scales
   const progressionAnalysis = useMemo(() => {
-    if (mode === 'recording' && audioState.detectedChords.length > 0) {
+    if (audioState.detectedChords.length > 0) {
       // Extract chord symbols from detected chords
       const chordSymbols = audioState.detectedChords.map(event => event.chord);
       return analyzeProgression(chordSymbols);
     }
     return null;
-  }, [audioState.detectedChords, mode]);
+  }, [audioState.detectedChords]);
+
+  // Get scale suggestions for the active chord
+  const scaleSuggestions = useMemo(() => {
+    const chordData = chordDefinitions[activeChord] || currentChordData;
+    if (chordData?.symbol) {
+      const context = {
+        progression: audioState.detectedChords.map(event => event.chord),
+        progressionType: progressionAnalysis?.progressionType,
+      };
+      return getScaleSuggestions(chordData.symbol, context);
+    }
+    return [];
+  }, [activeChord, audioState.detectedChords, progressionAnalysis?.progressionType, currentChordData]);
+
+  // --- START: NEW LOGIC for extracting scale names and notes for "Both" mode ---
+  const progressionScale = useMemo(() => {
+    const perfectMatch = progressionAnalysis?.progressionScales?.find(s => s.quality === 'perfect');
+    return perfectMatch || progressionAnalysis?.progressionScales?.[0];
+  }, [progressionAnalysis]);
+
+  const chordMomentScale = useMemo(() => {
+    const perfectMatch = scaleSuggestions.find(s => s.quality === 'perfect');
+    return perfectMatch || scaleSuggestions[0];
+  }, [scaleSuggestions]);
+  // --- END: NEW LOGIC ---
 
   // Get the notes to highlight on the fretboard
   const highlightedNotes = useMemo(() => {
     if (highlightMode === 'chord') {
-      // Only show chord-specific scales
-      return scaleSuggestions
-        .filter(s => s.quality === 'perfect')
-        .flatMap(s => s.notes)
-        .filter((note, index, arr) => arr.indexOf(note) === index); // Remove duplicates
-    } else if (highlightMode === 'progression') {
-      // Show progression-wide scales if available, otherwise fall back to current chord scale
-      if (progressionAnalysis?.progressionScales) {
-        return progressionAnalysis.progressionScales
-          .filter(s => s.quality === 'perfect')
-          .flatMap(s => s.notes)
-          .filter((note, index, arr) => arr.indexOf(note) === index);
-      } else {
-        // Fallback to current chord scale when no progression analysis
-        return scaleSuggestions
-          .filter(s => s.quality === 'perfect')
-          .flatMap(s => s.notes)
-          .filter((note, index, arr) => arr.indexOf(note) === index);
-      }
-    } else {
-      // Show both, prioritizing perfect matches
-      const chordNotes = scaleSuggestions
-        .filter(s => s.quality === 'perfect')
-        .flatMap(s => s.notes);
-      
-      const progressionNotes = progressionAnalysis?.progressionScales
-        .filter(s => s.quality === 'perfect')
-        .flatMap(s => s.notes) || [];
-      
-      // Combine and remove duplicates, prioritizing progression notes
-      const allNotes = [...progressionNotes, ...chordNotes];
-      return allNotes.filter((note, index, arr) => arr.indexOf(note) === index);
+      // Use the single best scale for the chord of the moment
+      return chordMomentScale?.notes || [];
     }
-  }, [scaleSuggestions, progressionAnalysis, highlightMode]);
+    if (highlightMode === 'progression') {
+      // Use the single best scale for the progression
+      return progressionScale?.notes || [];
+    }
+    if (highlightMode === 'both') {
+      // In 'both' mode, the main highlighted notes are the progression scale.
+      // The chord of the moment notes are passed in a separate prop and handled as an overlay.
+      return progressionScale?.notes || [];
+    }
+    return [];
+  }, [chordMomentScale, progressionScale, highlightMode]);
 
   // Extract root notes from the active chord and progression
   const rootNotes = useMemo(() => {
@@ -144,6 +142,13 @@ export default function Home() {
     }
   }, [audioState.currentChord, mode]);
 
+  // Auto-switch to progression view when a good progression is detected
+  useEffect(() => {
+    if (progressionAnalysis?.progressionScales?.some(s => s.quality === 'perfect')) {
+      setHighlightMode('progression');
+    }
+  }, [progressionAnalysis]);
+
   const handleUpdateChord = (timestamp: number, newChord: string) => {
     updateDetectedChord(timestamp, newChord);
   };
@@ -169,6 +174,7 @@ export default function Home() {
           onStopRecording={handleStopRecording}
           onClearRecording={clearChords}
           onUpdateChord={handleUpdateChord}
+          onPlaybackChordChange={setPlaybackChord}
         />
 
         {/* Main Content */}
@@ -243,7 +249,7 @@ export default function Home() {
                       : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
                   }`}
                 >
-                  Chord Scale Notes
+                  Chord of the Moment Scale
                 </button>
                 <button
                   onClick={() => setHighlightMode('progression')}
@@ -273,6 +279,9 @@ export default function Home() {
                 highlightedNotes={highlightedNotes}
                 highlightMode={highlightMode}
                 rootNotes={rootNotes}
+                progressionScaleName={progressionScale?.name}
+                chordMomentScaleName={chordMomentScale?.name}
+                chordMomentNotes={chordMomentScale?.notes}
               />
             </div>
           </div>
@@ -301,22 +310,6 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          {/* Chord Selector (moved to bottom, when in manual mode) */}
-          {mode === 'manual' && (
-            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
-              <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-4">
-                Manual Chord Selection
-              </h3>
-              <p className="text-slate-600 dark:text-slate-400 mb-4 text-sm">
-                Use this to manually explore different chords and their scales. For real-time practice, use the recording feature above.
-              </p>
-              <ChordSelector
-                selectedChord={selectedChord}
-                onChordChange={handleChordChange}
-              />
-            </div>
-          )}
         </main>
       </div>
     </div>

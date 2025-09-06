@@ -17,7 +17,10 @@ export interface ProgressionAnalysis {
 /**
  * Get scale suggestions for a given chord
  */
-export function getScaleSuggestions(chordSymbol: string): ScaleSuggestion[] {
+export function getScaleSuggestions(
+  chordSymbol: string,
+  context?: { progression?: string[], progressionType?: 'blues' | 'major' | 'minor' | 'other' }
+): ScaleSuggestion[] {
   try {
     const chord = Chord.get(chordSymbol);
     const chordNotes = chord.notes;
@@ -26,6 +29,41 @@ export function getScaleSuggestions(chordSymbol: string): ScaleSuggestion[] {
     if (!chordRoot || chordNotes.length === 0) {
       return [];
     }
+
+    // --- START: CONTEXT-AWARE BLUES LOGIC ---
+    if (context?.progressionType === 'blues' && context.progression && context.progression.length > 0) {
+      const progressionRoot = Chord.get(context.progression[0]).tonic;
+      
+      if (progressionRoot) {
+        const suggestions: ScaleSuggestion[] = [];
+        
+        // 1. The Mixolydian scale for the CURRENT chord is the 'perfect' choice for the "moment".
+        const chordMixolydian = Scale.get(`${chordRoot} mixolydian`);
+        if (chordMixolydian.notes.length > 0) {
+          suggestions.push({ ...chordMixolydian, quality: 'perfect' });
+        }
+
+        // 2. The root minor pentatonic is ALWAYS a 'good' choice for the overall progression.
+        const rootMinorPentatonic = Scale.get(`${progressionRoot} minor pentatonic`);
+        if (rootMinorPentatonic.notes.length > 0) {
+          suggestions.push({ ...rootMinorPentatonic, quality: 'good' });
+        }
+        
+        // 3. The minor pentatonic for the CURRENT chord is a 'possible' choice.
+        const chordMinorPentatonic = Scale.get(`${chordRoot} minor pentatonic`);
+        if (chordMinorPentatonic.notes.length > 0) {
+            suggestions.push({ ...chordMinorPentatonic, quality: 'possible' });
+        }
+        
+        return suggestions
+          .filter((suggestion, index, arr) => arr.findIndex(s => s.name === suggestion.name) === index)
+          .sort((a, b) => {
+             const qualityOrder = { perfect: 0, good: 1, possible: 2 };
+             return qualityOrder[a.quality] - qualityOrder[b.quality];
+          });
+      }
+    }
+    // --- END: CONTEXT-AWARE BLUES LOGIC ---
 
     const suggestions: ScaleSuggestion[] = [];
 
@@ -51,15 +89,13 @@ export function getScaleSuggestions(chordSymbol: string): ScaleSuggestion[] {
       ] : []),
 
       // Seventh chord scales (dominant 7ths)
-      ...(chordSymbol.includes('7') ? [
+      ...(chord.type === 'dominant seventh' ? [
         { scale: 'mixolydian', quality: 'perfect' as const },
         { scale: 'blues', quality: 'perfect' as const },
         { scale: 'minor pentatonic', quality: 'good' as const },
         { scale: 'major pentatonic', quality: 'good' as const },
+        { scale: 'bebop dominant', quality: 'good' as const },
       ] : []),
-
-      // Universal scales that work with most chords
-      { scale: 'chromatic', quality: 'possible' as const },
     ];
 
     // Generate scale suggestions
@@ -143,26 +179,21 @@ export function analyzeProgression(chordSymbols: string[]): ProgressionAnalysis 
 function detectProgressionType(chordSymbols: string[]): 'blues' | 'major' | 'minor' | 'other' {
   if (chordSymbols.length < 2) return 'other';
 
-  // Check for blues progression (I-IV-V or variations)
-  const bluesPatterns = [
-    ['A', 'D', 'E'], ['A7', 'D7', 'E7'],
-    ['C', 'F', 'G'], ['C7', 'F7', 'G7'],
-    ['G', 'C', 'D'], ['G7', 'C7', 'D7']
+  // Use Tonal.js to robustly get the tonic of each chord.
+  const rootNotes = [...new Set(chordSymbols.map(s => Chord.get(s).tonic).filter(Boolean))] as string[];
+
+  // Check for common blues progression root patterns (I-IV-V)
+  const bluesRoots = [
+    ['A', 'D', 'E'], ['C', 'F', 'G'], ['G', 'C', 'D'],
+    ['E', 'A', 'B'], ['B', 'E', 'F#'], ['D', 'G', 'A'],
+    ['F', 'Bb', 'C']
   ];
 
-  // Extract root notes (remove 7, m, etc.)
-  const rootNotes = chordSymbols.map(chord => {
-    if (chord.includes('7')) return chord.replace('7', '');
-    if (chord.includes('m')) return chord.replace('m', '');
-    return chord;
-  });
-
-  // Check if progression matches any blues pattern
-  for (const pattern of bluesPatterns) {
-    if (rootNotes.some(note => pattern.includes(note))) {
-      // Count how many blues chords we have
-      const bluesChordCount = rootNotes.filter(note => pattern.includes(note)).length;
-      if (bluesChordCount >= 2) {
+  for (const pattern of bluesRoots) {
+    // Check if all the progression's root notes are a subset of this blues pattern.
+    if (rootNotes.every(r => pattern.includes(r))) {
+      // Check if at least two of the I, IV, V chords are present.
+      if (rootNotes.length >= 2) {
         return 'blues';
       }
     }
@@ -198,28 +229,30 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
     if (progressionType === 'blues') {
       // Find the root chord (usually the first chord)
       const rootChord = chordSymbols[0];
-      const rootNote = rootChord.replace('7', '').replace('m', '');
+      const rootNote = Chord.get(rootChord).tonic;
       
-      // Blues scale and minor pentatonic work great over blues
-      const bluesScale = Scale.get(`${rootNote} blues`);
-      const minorPentatonic = Scale.get(`${rootNote} minor pentatonic`);
-      
-      if (bluesScale.notes.length > 0) {
-        suggestions.push({
-          name: bluesScale.name,
-          notes: bluesScale.notes,
-          intervals: bluesScale.intervals,
-          quality: 'perfect'
-        });
-      }
-      
-      if (minorPentatonic.notes.length > 0) {
-        suggestions.push({
-          name: minorPentatonic.name,
-          notes: minorPentatonic.notes,
-          intervals: minorPentatonic.intervals,
-          quality: 'perfect'
-        });
+      if (rootNote) {
+        // Minor Pentatonic is the most common, so we list it first.
+        const minorPentatonic = Scale.get(`${rootNote} minor pentatonic`);
+        const bluesScale = Scale.get(`${rootNote} blues`);
+        
+        if (minorPentatonic.notes.length > 0) {
+          suggestions.push({
+            name: minorPentatonic.name,
+            notes: minorPentatonic.notes,
+            intervals: minorPentatonic.intervals,
+            quality: 'perfect'
+          });
+        }
+        
+        if (bluesScale.notes.length > 0) {
+          suggestions.push({
+            name: bluesScale.name,
+            notes: bluesScale.notes,
+            intervals: bluesScale.intervals,
+            quality: 'perfect' // Blues scale is also a perfect fit
+          });
+        }
       }
     }
 
@@ -246,22 +279,6 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
           notes: majorPentatonic.notes,
           intervals: majorPentatonic.intervals,
           quality: 'perfect'
-        });
-      }
-    }
-
-    // Always include chromatic scale as a fallback
-    if (chordSymbols.length > 0) {
-      const rootChord = chordSymbols[0];
-      const rootNote = rootChord.replace('7', '').replace('m', '');
-      const chromatic = Scale.get(`${rootNote} chromatic`);
-      
-      if (chromatic.notes.length > 0) {
-        suggestions.push({
-          name: chromatic.name,
-          notes: chromatic.notes,
-          intervals: chromatic.intervals,
-          quality: 'possible'
         });
       }
     }
@@ -306,17 +323,38 @@ function determineKeySignature(chordSymbols: string[], progressionType: 'blues' 
 function calculateScaleCompatibility(chordNotes: string[], scaleNotes: string[]): number {
   if (chordNotes.length === 0 || scaleNotes.length === 0) return 0;
 
-  const chordNoteSet = new Set(chordNotes.map(note => note.replace(/\d+/, '')));
-  const scaleNoteSet = new Set(scaleNotes.map(note => note.replace(/\d+/, '')));
+  const chordNoteSet = new Set(chordNotes.map(n => n.slice(0, -1))); // Remove octave
+  const scaleNoteSet = new Set(scaleNotes.map(n => n.slice(0, -1)));
 
   let matches = 0;
-  for (const note of chordNoteSet) {
-    if (scaleNoteSet.has(note)) {
+  let clashes = 0;
+
+  // Check for matches and clashes
+  for (const chordNote of chordNoteSet) {
+    if (scaleNoteSet.has(chordNote)) {
       matches++;
+    }
+
+    // Check for clashes (notes a half-step away)
+    const charCode = chordNote.charCodeAt(0);
+    const accidental = chordNote.length > 1 ? chordNote.charAt(1) : '';
+    
+    // Simplified clash detection - check for notes a half-step below that are in the scale
+    // This catches the most common clash, e.g., G# in major scale vs G in dominant 7th chord.
+    if (accidental === '#') {
+      const naturalNote = String.fromCharCode(charCode);
+      if(scaleNoteSet.has(naturalNote)) clashes++;
+    } else {
+      const sharpNote = String.fromCharCode(charCode) + '#';
+      // Find note a half step below. Wrap around from C to B.
+      const prevNoteCharCode = charCode === 65 ? 71 : charCode - 1; // A -> G, etc.
+      const noteBelow = String.fromCharCode(prevNoteCharCode);
+       if(scaleNoteSet.has(noteBelow) && noteBelow !== 'B' && noteBelow !== 'E') clashes++; // Avoid B/C and E/F simple clashes
     }
   }
 
-  return matches / chordNotes.length;
+  const compatibility = (matches / chordNoteSet.size) - (clashes * 0.5); // Penalize clashes
+  return Math.max(0, compatibility); // Ensure score is not negative
 }
 
 /**
