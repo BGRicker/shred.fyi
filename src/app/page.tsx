@@ -16,7 +16,7 @@ export default function Home() {
   const [highlightMode, setHighlightMode] = useState<'chord' | 'progression' | 'both'>('both');
 
   // Audio recording hook
-  const { state: audioState, startRecording, stopRecording, clearChords } = useAudioRecording();
+  const { state: audioState, startRecording, stopRecording, clearChords, updateDetectedChord } = useAudioRecording();
 
   const currentChordData = chordDefinitions[selectedChord];
   
@@ -144,6 +144,10 @@ export default function Home() {
     }
   }, [audioState.currentChord, mode]);
 
+  const handleUpdateChord = (timestamp: number, newChord: string) => {
+    updateDetectedChord(timestamp, newChord);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       <div className="container mx-auto px-4 py-8">
@@ -164,6 +168,7 @@ export default function Home() {
           onStartRecording={handleStartRecording}
           onStopRecording={handleStopRecording}
           onClearRecording={clearChords}
+          onUpdateChord={handleUpdateChord}
         />
 
         {/* Main Content */}
@@ -222,19 +227,6 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          {/* Chord Progression (when recording or when there are detected chords) */}
-          {(mode === 'recording' || audioState.detectedChords.length > 0) && (
-            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
-              <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-4">
-                Chord Progression {mode === 'recording' ? '(Recording)' : '(Last Recording)'}
-              </h3>
-              <ChordProgression 
-                chords={audioState.detectedChords}
-                currentChord={audioState.currentChord}
-              />
-            </div>
-          )}
 
           {/* Fretboard Controls */}
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
