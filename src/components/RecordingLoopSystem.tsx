@@ -383,7 +383,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       // Stop Web Audio loop if active
       stopWebAudioLoop();
     };
-  }, [isPlaying, loopStart, loopEnd, playbackSpeed, audioBufferRef.current, audioContextRef.current]);
+  }, [isPlaying, loopStart, loopEnd, playbackSpeed]);
 
   const startAudioRecording = async () => {
     try {
