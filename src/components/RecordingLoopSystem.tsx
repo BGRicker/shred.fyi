@@ -1,14 +1,8 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Howl, Howler } from 'howler';
-
-interface ChordEvent {
-  chord: string;
-  timestamp: number;
-  duration: number;
-  audioData?: Blob; // Store actual audio data
-}
+import { chordDefinitions } from '@/lib/chords';
 
 interface RecordingLoopSystemProps {
   isRecording: boolean;
@@ -16,6 +10,7 @@ interface RecordingLoopSystemProps {
   onStartRecording: () => void;
   onStopRecording: () => void;
   onClearRecording: () => void;
+  onUpdateChord: (timestamp: number, newChord: string) => void;
 }
 
 const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
@@ -24,6 +19,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
   onStartRecording,
   onStopRecording,
   onClearRecording,
+  onUpdateChord,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -33,10 +29,10 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
   const [metronomeBPM, setMetronomeBPM] = useState(120);
   const [volume, setVolume] = useState(1);
+  const [detailsVisible, setDetailsVisible] = useState(false);
   
   // Audio recording state
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
-  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -52,309 +48,106 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
   const metronomeRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
   const audioUrlRef = useRef<string | null>(null);
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
-  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
-  const [howlInstance, setHowlInstance] = useState<Howl | null>(null);
   
-  // Ultra-low-latency audio playback state
-  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
-  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
-  const [audioSource, setAudioSource] = useState<AudioBufferSourceNode | null>(null);
-  const [isUsingWebAudio, setIsUsingWebAudio] = useState(false);
+  // --- REDESIGNED AUDIO STATE for drift-free looping ---
+  const [isAudioReady, setIsAudioReady] = useState(false);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
+  const audioSourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioStartTimeRef = useRef<number>(0); // Tracks start time of the *current* loop iteration
+  const pauseTimeRef = useRef<number>(0); // Tracks position within the loop when paused
+  const scheduleNextLoopRef = useRef<NodeJS.Timeout | null>(null);
+  // --- End of redesigned state ---
   
-  // Web Audio pause/resume state
-  const [isPaused, setIsPaused] = useState(false);
-  const [pauseTime, setPauseTime] = useState(0);
-  const audioStartTimeRef = useRef<number>(0);
-  
-  // True gapless audio system for zero-latency looping
-  const [audioSources, setAudioSources] = useState<AudioBufferSourceNode[]>([]);
-  const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
-  const [isGaplessActive, setIsGaplessActive] = useState(false);
-  
-  // ULTIMATE NUCLEAR OPTION: Pre-buffered circular audio system
-  const [circularBuffer, setCircularBuffer] = useState<AudioBuffer | null>(null);
-  const [isCircularActive, setIsCircularActive] = useState(false);
-  const [circularSource, setCircularSource] = useState<AudioBufferSourceNode | null>(null);
-  const createGaplessBuffer = () => {
-    if (!audioBuffer || !audioContext) return null;
-    
-    try {
-      const loopStartSeconds = loopStart / 1000;
-      const loopEndSeconds = loopEnd / 1000;
-      const loopDuration = loopEndSeconds - loopStartSeconds;
-      
-      // Create a buffer that's 3x the loop duration for seamless looping
-      const totalDuration = loopDuration * 3;
-      const sampleRate = audioBuffer.sampleRate;
-      const totalSamples = Math.floor(totalDuration * sampleRate);
-      
-      // Create new buffer
-      const gaplessBuffer = audioContext.createBuffer(1, totalSamples, sampleRate);
-      const originalData = audioBuffer.getChannelData(0);
-      const newData = gaplessBuffer.getChannelData(0);
-      
-      // Fill the buffer with 3 copies of the loop section
-      for (let i = 0; i < 3; i++) {
-        const startSample = Math.floor(loopStartSeconds * sampleRate);
-        const endSample = Math.floor(loopEndSeconds * sampleRate);
-        const loopSamples = endSample - startSample;
-        const targetStart = i * loopSamples;
-        
-        for (let j = 0; j < loopSamples; j++) {
-          if (startSample + j < originalData.length) {
-            newData[targetStart + j] = originalData[startSample + j];
-          }
-        }
-      }
-      
-      console.log('Created gapless buffer:', {
-        originalDuration: audioBuffer.duration,
-        loopDuration,
-        totalDuration,
-        totalSamples
-      });
-      
-      return gaplessBuffer;
-    } catch (error) {
-      console.error('Error creating gapless buffer:', error);
-      return null;
+  const [editingChord, setEditingChord] = useState<{ chord: string; timestamp: number } | null>(null);
+  const [isDetailsVisible, setIsDetailsVisible] = useState(false);
+
+  // --- START: DRIFT-FREE LOOPING LOGIC ---
+
+  // Stop Web Audio loop
+  const stopWebAudioLoop = useCallback(() => {
+    if (scheduleNextLoopRef.current) {
+      clearTimeout(scheduleNextLoopRef.current);
+      scheduleNextLoopRef.current = null;
     }
-  };
-  
-  // Start true gapless looping
-  const startGaplessLoop = () => {
-    if (!audioBuffer || !audioContext || !isPlaying) return;
-    
-    try {
-      // Stop any existing sources
-      if (audioSources.length > 0) {
-        audioSources.forEach(source => {
-          try {
-            source.stop();
-          } catch (e) {
-            // Source might already be stopped
-          }
-        });
-        setAudioSources([]);
+    if (audioSourceNodeRef.current) {
+      try {
+        audioSourceNodeRef.current.stop();
+      } catch (e) {
+        // Can ignore errors if the source is already stopped
       }
-      
-      // Create gapless buffer
-      const gaplessBuffer = createGaplessBuffer();
-      if (!gaplessBuffer) {
-        console.warn('Failed to create gapless buffer, falling back to regular');
-        startWebAudioLoop();
-        return;
-      }
-      
-      // Create 3 pre-allocated sources
-      const sources: AudioBufferSourceNode[] = [];
-      const loopStartSeconds = loopStart / 1000;
-      const loopEndSeconds = loopEnd / 1000;
-      const loopDuration = loopEndSeconds - loopStartSeconds;
-      
-      for (let i = 0; i < 3; i++) {
-        const source = audioContext.createBufferSource();
-        source.buffer = gaplessBuffer;
-        source.connect(audioContext.destination);
-        sources.push(source);
-      }
-      
-      setAudioSources(sources);
-      setCurrentSourceIndex(0);
-      setIsGaplessActive(true);
-      
-      // Start first source
-      const now = audioContext.currentTime;
-      sources[0].start(now, 0, loopDuration);
-      
-      // Schedule next sources to start exactly when previous ends
-      for (let i = 1; i < sources.length; i++) {
-        const startTime = now + (i * loopDuration);
-        sources[i].start(startTime, 0, loopDuration);
-      }
-      
-      // Set up the chain for infinite looping
-      sources.forEach((source, index) => {
-        source.onended = () => {
-          if (isPlaying && isGaplessActive) {
-            // Immediately start the next iteration
-            const nextIndex = (index + 1) % sources.length;
-            const nextSource = sources[nextIndex];
-            const nextStartTime = audioContext.currentTime;
-            
-            // Restart this source immediately
-            nextSource.start(nextStartTime, 0, loopDuration);
-            
-            // Update current source index
-            setCurrentSourceIndex(nextIndex);
-          }
-        };
-      });
-      
-      console.log('True gapless loop started with zero latency');
-      
-    } catch (error) {
-      console.error('Error starting gapless loop:', error);
-      setIsGaplessActive(false);
-      // Fallback to regular Web Audio
-      startWebAudioLoop();
+      audioSourceNodeRef.current.disconnect();
+      audioSourceNodeRef.current = null;
     }
-  };
-  
-  // Simple and reliable zero-latency Web Audio API looping
-  const startWebAudioLoop = () => {
-    if (!audioBuffer || !audioContext || !isPlaying) return;
+  }, []);
+
+  const startWebAudioLoop = useCallback((startTime = 0) => {
+    if (!audioContextRef.current || !audioBufferRef.current) return;
     
-    try {
-      // Stop any existing source
-      if (audioSource) {
-        audioSource.stop();
-        audioSource.disconnect();
-      }
+    stopWebAudioLoop(); // Stop any existing loop first
+
+    const audioContext = audioContextRef.current;
+    const audioBuffer = audioBufferRef.current;
+    const loopDuration = (loopEnd - loopStart) / 1000;
+
+    if (loopDuration <= 0) return;
+
+    const playChunk = (timeOffset: number) => {
+      if (!audioContextRef.current) return; // Guard against context being closed
       
-      // Create new source
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      
-      // Calculate loop parameters
-      const loopStartSeconds = loopStart / 1000;
-      const loopEndSeconds = loopEnd / 1000;
-      const loopDuration = loopEndSeconds - loopStartSeconds;
-      
-      // Enable native looping for zero latency
-      source.loop = true;
-      source.loopStart = loopStartSeconds;
-      source.loopEnd = loopEndSeconds;
-      
-      // Connect to output
       source.connect(audioContext.destination);
+
+      const durationToPlay = loopDuration - timeOffset;
+      source.start(0, (loopStart / 1000) + timeOffset, durationToPlay);
+      audioSourceNodeRef.current = source;
       
-      // Start playing immediately
-      source.start();
+      // Crucial part: track the start of this specific chunk for drift-free animation
+      audioStartTimeRef.current = audioContext.currentTime - timeOffset;
       
-      // Store reference
-      setAudioSource(source);
-      audioStartTimeRef.current = audioContext.currentTime; // Initialize start time
-      
-      console.log('Web Audio loop started with native looping:', {
-        loopStartSeconds,
-        loopEndSeconds,
-        loopDuration
-      });
-      
-    } catch (error) {
-      console.error('Error starting Web Audio loop:', error);
-      // Fallback to Howler.js
-      setIsUsingWebAudio(false);
-    }
-  };
-  
-  // Stop Web Audio loop
-  const stopWebAudioLoop = () => {
-    if (audioSource) {
-      audioSource.stop();
-      audioSource.disconnect();
-      setAudioSource(null);
-      audioStartTimeRef.current = 0; // Reset start time
-    }
-  };
+      // Schedule the next loop iteration just before this one ends
+      scheduleNextLoopRef.current = setTimeout(() => {
+        playChunk(0); // Next iteration starts from the beginning of the loop
+      }, durationToPlay * 1000);
+    };
+
+    playChunk(startTime);
+  }, [loopStart, loopEnd, stopWebAudioLoop]);
 
   // Pause Web Audio loop
-  const pauseWebAudioLoop = () => {
-    if (audioSource && isPlaying) {
-      try {
-        // Calculate current position using our stored start time
-        const currentTime = audioContext!.currentTime;
-        const elapsed = currentTime - audioStartTimeRef.current;
-        const loopStartSeconds = loopStart / 1000;
-        const loopEndSeconds = loopEnd / 1000;
-        const loopDuration = loopEndSeconds - loopStartSeconds;
-        
-        // Calculate position within the loop
-        const positionInLoop = (elapsed % loopDuration) + loopStartSeconds;
-        setPauseTime(positionInLoop);
-        
-        // Stop the source
-        audioSource.stop();
-        audioSource.disconnect();
-        setAudioSource(null);
-        setIsPaused(true);
-        
-        console.log('Web Audio loop paused at:', positionInLoop);
-      } catch (error) {
-        console.error('Error pausing Web Audio loop:', error);
+  const pauseWebAudioLoop = useCallback(() => {
+    if (audioSourceNodeRef.current && audioContextRef.current) {
+      const loopDuration = (loopEnd - loopStart) / 1000;
+      if (loopDuration > 0) {
+        const elapsedTime = audioContextRef.current.currentTime - audioStartTimeRef.current;
+        pauseTimeRef.current = elapsedTime % loopDuration;
       }
+      stopWebAudioLoop();
     }
-  };
+  }, [loopEnd, loopStart, stopWebAudioLoop]);
   
   // Resume Web Audio loop
-  const resumeWebAudioLoop = () => {
-    if (isPaused && audioBuffer && audioContext && isPlaying) {
-      try {
-        // Create new source
-        const source = audioContext.createBufferSource();
-        source.buffer = audioBuffer;
-        
-        // Calculate loop parameters
-        const loopStartSeconds = loopStart / 1000;
-        const loopEndSeconds = loopEnd / 1000;
-        const loopDuration = loopEndSeconds - loopStartSeconds;
-        
-        // Enable native looping for zero latency
-        source.loop = true;
-        source.loopStart = loopStartSeconds;
-        source.loopEnd = loopEndSeconds;
-        
-        // Connect to output
-        source.connect(audioContext.destination);
-        
-        // Start from where we paused
-        const startTime = audioContext.currentTime;
-        source.start(startTime, pauseTime, loopDuration);
-        
-        // Store reference
-        setAudioSource(source);
-        setIsPaused(false);
-        
-        console.log('Web Audio loop resumed from:', pauseTime);
-      } catch (error) {
-        console.error('Error resuming Web Audio loop:', error);
-      }
+  const resumeWebAudioLoop = useCallback(() => {
+    if (audioBufferRef.current && audioContextRef.current) {
+      startWebAudioLoop(pauseTimeRef.current);
     }
-  };
+  }, [startWebAudioLoop]);
+
+  // --- END: DRIFT-FREE LOOPING LOGIC ---
+
 
   const handlePlayPause = () => {
-    if (isPlaying) {
-      setIsPlaying(false);
-      // Pause audio playback
-      if (isUsingWebAudio) {
-        pauseWebAudioLoop();
-      } else if (howlInstance) {
-        howlInstance.pause();
-      }
-    } else {
-      setIsPlaying(true);
-      // Resume audio playback
-      if (isUsingWebAudio && isPaused) {
-        resumeWebAudioLoop();
-      }
-    }
+    // The useEffect hook will handle the playback logic based on the isPlaying state.
+    setIsPlaying(!isPlaying);
   };
 
   const handleStop = () => {
     setIsPlaying(false);
     setCurrentTime(0);
-    setIsPaused(false); // Reset pause state
+    pauseTimeRef.current = 0; // Reset pause state
     
     // Stop all audio systems
-    if (isUsingWebAudio) {
-      // Stop regular source
-      stopWebAudioLoop();
-    }
-    if (howlInstance) {
-      howlInstance.stop();
-    }
+    stopWebAudioLoop();
   };
 
   const handleLoopToggle = () => {
@@ -400,10 +193,62 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     return timestamp - Math.min(...detectedChords.map(e => e.timestamp));
   };
 
-  // Calculate total duration of the recording
-  const totalDuration = detectedChords.length > 0 
-    ? (Math.max(...detectedChords.map(event => event.timestamp)) - Math.min(...detectedChords.map(event => event.timestamp))) + 2000 // Add 2 seconds buffer
-    : 0;
+  const totalDuration = useMemo(() => {
+    if (detectedChords.length === 0) return 0;
+    const timestamps = detectedChords.map(event => event.timestamp);
+    return (Math.max(...timestamps) - Math.min(...timestamps)) + 2000; // Add 2 seconds buffer
+  }, [detectedChords]);
+
+  const processedChords = useMemo(() => {
+    if (detectedChords.length < 1) return [];
+
+    // 1. Consolidate consecutive identical chords
+    const consolidated = detectedChords.reduce<Array<{ chord: string; timestamp: number }>>((acc, current) => {
+      if (acc.length === 0 || acc[acc.length - 1].chord !== current.chord) {
+        acc.push({
+          chord: current.chord,
+          timestamp: current.timestamp,
+        });
+      }
+      return acc;
+    }, []);
+
+    const minTimestamp = detectedChords[0].timestamp;
+
+    // 2. Calculate start, end, and duration for each consolidated block
+    return consolidated.map((event, index) => {
+      const nextEvent = consolidated[index + 1];
+
+      const start = event.timestamp - minTimestamp;
+      // The end time of the last chord should be the total duration of the loop
+      const end = nextEvent ? nextEvent.timestamp - minTimestamp : totalDuration;
+      
+      return {
+        ...event,
+        start,
+        end,
+        duration: end - start,
+      };
+    });
+  }, [detectedChords, totalDuration]);
+
+  const chordColorMap = useMemo(() => {
+    const colors = [
+      'bg-blue-500', 'bg-green-500', 'bg-red-500', 'bg-yellow-500',
+      'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500',
+      'bg-orange-500', 'bg-cyan-500', 'bg-lime-500', 'bg-rose-500'
+    ];
+    const uniqueChords = [...new Set(processedChords.map(c => c.chord))];
+    const map = new Map<string, string>();
+    uniqueChords.forEach((chord, index) => {
+      map.set(chord, colors[index % colors.length]);
+    });
+    return map;
+  }, [processedChords]);
+
+  const getChordColor = (chord: string) => {
+    return chordColorMap.get(chord) || 'bg-gray-500';
+  };
 
   const currentChord = getCurrentChord();
 
@@ -491,117 +336,43 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       }
       
       // Stop Web Audio loop if active
-      if (isUsingWebAudio) {
-        // Stop circular source
-        if (circularSource) {
-          circularSource.stop();
-          circularSource.disconnect();
-        }
-        
-        // Stop gapless sources
-        if (audioSources.length > 0) {
-          audioSources.forEach(source => {
-            try {
-              source.stop();
-            } catch (e) {
-              // Source might already be stopped
-            }
-          });
-          setAudioSources([]);
-        }
-        
-        // Stop regular source
-        stopWebAudioLoop();
-      }
-      
-      // Stop Howler.js if active
-      if (howlInstance) {
-        howlInstance.stop();
-      }
+      stopWebAudioLoop();
       return;
     }
 
-    const animate = (currentTimeMs: number) => {
-      if (!startTimeRef.current) {
-        startTimeRef.current = currentTimeMs;
+    const animate = () => {
+      if (!isPlaying) {
+        if(playbackRef.current) cancelAnimationFrame(playbackRef.current);
+        playbackRef.current = null;
+        return;
       }
-
-      const elapsed = (currentTimeMs - startTimeRef.current) * playbackSpeed;
-      const newTime = (loopStart + elapsed) % (loopEnd - loopStart);
-
-      setCurrentTime(newTime);
-
-      if (isPlaying) {
-        playbackRef.current = requestAnimationFrame(animate);
+    
+      let positionInLoopMs;
+      const loopDurationMs = loopEnd - loopStart;
+    
+      if (audioContextRef.current && audioStartTimeRef.current > 0 && loopDurationMs > 0) {
+        // THIS IS THE DRIFT-FREE CALCULATION
+        const elapsedSec = audioContextRef.current.currentTime - audioStartTimeRef.current;
+        positionInLoopMs = elapsedSec * 1000;
       }
+    
+      if (positionInLoopMs !== undefined && positionInLoopMs >= 0) {
+        setCurrentTime(positionInLoopMs);
+      }
+    
+      playbackRef.current = requestAnimationFrame(animate);
     };
 
-    startTimeRef.current = 0;
     playbackRef.current = requestAnimationFrame(animate);
 
     // Start audio playback with ultra-low-latency Web Audio API
-    if (isUsingWebAudio && audioBuffer && audioContext) {
+    if (audioBufferRef.current && audioContextRef.current) {
       console.log('Using Web Audio API for ultra-low-latency looping');
-      
-      // Try circular looping first for TRUE zero latency
-      if (!isCircularActive) {
-        startCircularLoop();
-      } else if (!isGaplessActive) {
-        startGaplessLoop();
+      if (pauseTimeRef.current > 0) {
+        resumeWebAudioLoop();
       } else {
-        startWebAudioLoop();
+        startWebAudioLoop(0);
       }
-    } else if (howlInstance) {
-      // Fallback to Howler.js
-      console.log('Using Howler.js for audio playback');
-      
-      const loopDuration = (loopEnd - loopStart) / 1000; // Convert to seconds
-      const loopStartSeconds = loopStart / 1000;
-      
-      console.log('Audio playback:', {
-        loopStart,
-        loopEnd,
-        loopStartSeconds,
-        loopDuration,
-        totalDuration,
-        howlInstanceDuration: howlInstance.duration()
-      });
-      
-      // INSTANT LOOPING: Use Howler's built-in looping with custom boundaries
-      howlInstance.loop(true);
-      
-      // Pre-buffer the audio for instant restart
-      howlInstance.on('load', () => {
-        console.log('Audio pre-buffered for instant looping');
-      });
-      
-      // Start playing from the loop start position
-      howlInstance.seek(loopStartSeconds);
-      howlInstance.play();
-      
-      // Monitor playback position for instant loop boundaries
-      const checkLoopPosition = () => {
-        if (!isPlaying || !howlInstance) return;
-        
-        const currentPosition = howlInstance.seek();
-        const loopEndSeconds = loopEnd / 1000;
-        
-        // INSTANT LOOP: Jump back immediately when reaching loop end
-        if (currentPosition >= loopEndSeconds) {
-          howlInstance.seek(loopStartSeconds);
-          // Force immediate restart with no delay
-          howlInstance.stop();
-          howlInstance.play();
-        }
-        
-        // Continue monitoring at maximum frequency for instant response
-        if (isPlaying) {
-          requestAnimationFrame(checkLoopPosition);
-        }
-      };
-      
-      // Start high-frequency monitoring for instant loop detection
-      requestAnimationFrame(checkLoopPosition);
     }
 
     return () => {
@@ -610,40 +381,13 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       }
       
       // Stop Web Audio loop if active
-      if (isUsingWebAudio) {
-        // Stop circular source
-        if (circularSource) {
-          circularSource.stop();
-          circularSource.disconnect();
-        }
-        
-        // Stop gapless sources
-        if (audioSources.length > 0) {
-          audioSources.forEach(source => {
-            try {
-              source.stop();
-            } catch (e) {
-              // Source might already be stopped
-            }
-          });
-          setAudioSources([]);
-        }
-        
-        // Stop regular source
-        stopWebAudioLoop();
-      }
-      
-      // Stop Howler.js if active
-      if (howlInstance) {
-        howlInstance.stop();
-      }
+      stopWebAudioLoop();
     };
-  }, [isPlaying, loopStart, loopEnd, playbackSpeed, howlInstance, isUsingWebAudio, audioBuffer, audioContext, isGaplessActive]);
+  }, [isPlaying, loopStart, loopEnd, playbackSpeed]);
 
   const startAudioRecording = async () => {
     try {
       setIsRecordingAudio(true);
-      setRecordingStartTime(Date.now());
       
       // Get microphone access with optimal settings for guitar
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -686,7 +430,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       // Smart silence detection that accounts for guitar decay
       let hasDetectedSound = false;
       let silenceStartTime: number | null = null;
-      let lastSoundLevel = 0;
+      const lastSoundLevel = 0;
       const countdownClearTime = Date.now() + 1000; // Wait 1 second after countdown to start detection
       
       const detectSilence = () => {
@@ -738,7 +482,6 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
           } else {
             // Reset silence timer if we hear sound again
             silenceStartTime = null;
-            lastSoundLevel = currentLevel;
           }
         }
         
@@ -757,9 +500,21 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
         console.log('MediaRecorder stopped');
         setIsRecordingAudio(false);
         
+        // --- START: CRITICAL FIX for AudioContext Lifecycle ---
+
+        // 1. First, clean up the old analysis context and resources
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
+        if (analyserRef.current) {
+          analyserRef.current = null;
+        }
+        stream.getTracks().forEach(track => track.stop());
+
+        // --- END: CRITICAL FIX ---
+        
         const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-        setRecordedAudio(audioBlob);
-        setAudioChunks(chunks);
         
         // Trim silence from the recorded audio
         console.log('Trimming silence from recorded audio...');
@@ -772,55 +527,28 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
           const audioUrl = URL.createObjectURL(trimmedBlob);
           audioUrlRef.current = audioUrl;
           
-          // Create Howl instance with trimmed audio
-          const howl = new Howl({
-            src: [audioUrl],
-            format: ['wav'], // Now using WAV format
-            html5: false,
-            preload: true,
-            onload: () => {
-              console.log('Howl audio loaded successfully');
-              setHowlInstance(howl);
-              setIsProcessingAudio(false);
-            },
-            onloaderror: (id, error) => {
-              console.error('Howl audio load error:', error);
-              setIsProcessingAudio(false);
-            }
-          });
-          
           // Also create AudioBuffer for Web Audio API (ultra-low-latency)
           try {
+            // 2. Now, create a NEW, persistent context for playback
             const webAudioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
             const arrayBuffer = await trimmedBlob.arrayBuffer();
             const buffer = await webAudioContext.decodeAudioData(arrayBuffer);
             
-            setAudioBuffer(buffer);
-            setAudioContext(webAudioContext);
-            setIsUsingWebAudio(true);
+            audioBufferRef.current = buffer;
+            audioContextRef.current = webAudioContext;
+            setIsAudioReady(true);
             
             console.log('Web Audio API buffer created for ultra-low-latency looping');
           } catch (webAudioError) {
             console.warn('Web Audio API not available, falling back to Howler.js:', webAudioError);
-            setIsUsingWebAudio(false);
+          } finally {
+            setIsProcessingAudio(false);
           }
           
         } catch (error) {
           console.error('Error trimming audio:', error);
           setIsProcessingAudio(false);
         }
-        
-        // Cleanup audio context
-        if (audioContextRef.current) {
-          audioContextRef.current.close();
-          audioContextRef.current = null;
-        }
-        if (analyserRef.current) {
-          analyserRef.current = null;
-        }
-        
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
       };
       
       console.log('Audio recording started with smart silence detection');
@@ -828,7 +556,6 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     } catch (error) {
       console.error('Error starting audio recording:', error);
       setIsRecordingAudio(false);
-      setRecordingStartTime(null);
     }
   };
 
@@ -861,12 +588,12 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       stopAudioRecording();
       
       // Clear any existing recording data
-      setRecordedAudio(null);
-      setHowlInstance(null);
       if (audioUrlRef.current) {
         URL.revokeObjectURL(audioUrlRef.current);
         audioUrlRef.current = null;
       }
+      setIsAudioReady(false);
+      audioBufferRef.current = null;
       
       console.log('Recording stopped and cleaned up');
     }
@@ -996,86 +723,44 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     return new Blob([arrayBuffer], { type: 'audio/wav' });
   };
 
-  // Create a true circular buffer that repeats the loop section seamlessly
-  const createCircularBuffer = () => {
-    if (!audioBuffer || !audioContext) return null;
-    
-    try {
-      const loopStartSeconds = loopStart / 1000;
-      const loopEndSeconds = loopEnd / 1000;
-      const loopDuration = loopEndSeconds - loopStartSeconds;
-      
-      // Create a buffer that's exactly 2x the loop duration for perfect circular playback
-      const totalDuration = loopDuration * 2;
-      const sampleRate = audioBuffer.sampleRate;
-      const totalSamples = Math.floor(totalDuration * sampleRate);
-      
-      // Create new buffer
-      const circularBuffer = audioContext.createBuffer(1, totalSamples, sampleRate);
-      const originalData = audioBuffer.getChannelData(0);
-      const newData = circularBuffer.getChannelData(0);
-      
-      // Fill the buffer with 2 copies of the loop section
-      for (let i = 0; i < 2; i++) {
-        const startSample = Math.floor(loopStartSeconds * sampleRate);
-        const endSample = Math.floor(loopEndSeconds * sampleRate);
-        const loopSamples = endSample - startSample;
-        const targetStart = i * loopSamples;
-        
-        for (let j = 0; j < loopSamples; j++) {
-          if (startSample + j < originalData.length) {
-            newData[targetStart + j] = originalData[startSample + j];
-          }
-        }
-      }
-      
-      console.log('Created circular buffer:', {
-        originalDuration: audioBuffer.duration,
-        loopDuration,
-        totalDuration,
-        totalSamples
-      });
-      
-      return circularBuffer;
-    } catch (error) {
-      console.error('Error creating circular buffer:', error);
-      return null;
+  const uniqueChordsInLoop = useMemo(() => {
+    const chords = detectedChords.map(e => e.chord);
+    return [...new Set(chords)];
+  }, [detectedChords]);
+
+  const allChords = useMemo(() => Object.keys(chordDefinitions), []);
+
+  const handleChordUpdate = (newChord: string) => {
+    if (editingChord) {
+      onUpdateChord(editingChord.timestamp, newChord);
+      setEditingChord(null); // Close modal
     }
   };
   
   // Start ULTIMATE circular looping with zero latency
   const startCircularLoop = () => {
-    if (!audioBuffer || !audioContext || !isPlaying) return;
+    if (!audioBufferRef.current || !audioContextRef.current || !isPlaying) return;
     
     try {
       // Stop any existing sources
-      if (circularSource) {
-        circularSource.stop();
-        circularSource.disconnect();
-      }
-      if (audioSources.length > 0) {
-        audioSources.forEach(source => {
-          try {
-            source.stop();
-          } catch (e) {
-            // Source might already be stopped
-          }
-        });
-        setAudioSources([]);
+      if (audioSourceNodeRef.current) {
+        audioSourceNodeRef.current.stop();
+        audioSourceNodeRef.current.disconnect();
       }
       
       // Create circular buffer
-      const circularBuffer = createCircularBuffer();
-      if (!circularBuffer) {
-        console.warn('Failed to create circular buffer, falling back to regular');
-        startWebAudioLoop();
-        return;
-      }
+      // This function is removed as per the new state
+      // const circularBuffer = createCircularBuffer();
+      // if (!circularBuffer) {
+      //   console.warn('Failed to create circular buffer, falling back to regular');
+      //   startWebAudioLoop();
+      //   return;
+      // }
       
       // Create a single source that plays the circular buffer
-      const source = audioContext.createBufferSource();
-      source.buffer = circularBuffer;
-      source.connect(audioContext.destination);
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = audioBufferRef.current; // Use the trimmed audio buffer directly
+      source.connect(audioContextRef.current.destination);
       
       // Calculate loop parameters
       const loopStartSeconds = loopStart / 1000;
@@ -1091,15 +776,14 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       source.start();
       
       // Store references
-      setCircularSource(source);
-      setCircularBuffer(circularBuffer);
-      setIsCircularActive(true);
+      // setCircularSource(source); // This line is removed as per the new state
+      // setIsCircularActive(true); // This line is removed as per the new state
       
       console.log('ULTIMATE circular loop started with zero latency');
       
     } catch (error) {
       console.error('Error starting circular loop:', error);
-      setIsCircularActive(false);
+      // setIsCircularActive(false); // This line is removed as per the new state
       // Fallback to regular Web Audio
       startWebAudioLoop();
     }
@@ -1218,19 +902,13 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
         
         <button
           onClick={() => {
-            setRecordedAudio(null);
-            setAudioChunks([]);
-            setIsProcessingAudio(false);
             if (audioUrlRef.current) {
               URL.revokeObjectURL(audioUrlRef.current);
               audioUrlRef.current = null;
             }
-            if (howlInstance) {
-              howlInstance.stop();
-              howlInstance.unload();
-              setHowlInstance(null);
-            }
             onClearRecording();
+            setIsAudioReady(false);
+            audioBufferRef.current = null;
           }}
           disabled={isRecording || detectedChords.length === 0}
           className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
@@ -1282,7 +960,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
           </div>
         )}
         {/* Audio System Status */}
-        {howlInstance && (
+        {isAudioReady && (
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
@@ -1291,10 +969,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
               </span>
             </div>
             <p className="text-xs text-green-600 mt-1">
-              {isUsingWebAudio 
-                ? 'Using Web Audio API for ultra-low-latency looping'
-                : 'Using Howler.js for audio playback'
-              }
+              Using Web Audio API for ultra-low-latency looping
             </p>
           </div>
         )}
@@ -1306,12 +981,12 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
           <div className="flex flex-wrap items-center gap-4 mb-6">
             <button
               onClick={handlePlayPause}
-              disabled={detectedChords.length === 0 || !howlInstance}
+              disabled={detectedChords.length === 0 || !isAudioReady}
               className={`font-semibold py-2 px-4 rounded-lg transition-colors ${
                 isPlaying
                   ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
                   : 'bg-blue-600 hover:bg-blue-700 text-white'
-              } ${!howlInstance ? 'opacity-50 cursor-not-allowed' : ''}`}
+              } ${!isAudioReady ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {isPlaying ? '⏸ Pause' : '▶ Play'}
             </button>
@@ -1334,110 +1009,10 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
             
             {/* Audio Status */}
             <div className="flex items-center space-x-2 text-sm">
-              <span className={`w-2 h-2 rounded-full ${howlInstance ? 'bg-green-500' : 'bg-red-500'}`}></span>
+              <span className={`w-2 h-2 rounded-full ${isAudioReady ? 'bg-green-500' : 'bg-red-500'}`}></span>
               <span className="text-slate-600 dark:text-slate-400">
-                {howlInstance ? 'Audio Ready' : 'No Audio'}
+                {isAudioReady ? 'Audio Ready' : 'No Audio'}
               </span>
-            </div>
-          </div>
-
-          {/* Timeline */}
-          <div className="mb-6">
-            <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400 mb-2">
-              <span>Current: {formatTime(currentTime)}</span>
-              <span>Total: {formatTime(totalDuration)}</span>
-            </div>
-            
-            <div className="relative bg-slate-200 dark:bg-slate-700 rounded-lg h-6">
-              {/* Chord section backgrounds */}
-              {detectedChords.map((event, index) => {
-                const nextEvent = detectedChords[index + 1];
-                const eventStart = event.timestamp - Math.min(...detectedChords.map(e => e.timestamp));
-                const eventEnd = nextEvent ? nextEvent.timestamp - Math.min(...detectedChords.map(e => e.timestamp)) : eventStart + 1000;
-                const eventWidth = (eventEnd - eventStart) / totalDuration * 100;
-                const eventLeft = eventStart / totalDuration * 100;
-                
-                // Get chord color based on chord type
-                const getChordColor = (chord: string) => {
-                  if (chord.includes('7')) return 'bg-blue-400';
-                  if (chord.includes('m')) return 'bg-green-400';
-                  if (chord.includes('dim')) return 'bg-red-400';
-                  if (chord.includes('aug')) return 'bg-yellow-400';
-                  return 'bg-purple-400';
-                };
-                
-                return (
-                  <div
-                    key={`bg-${index}`}
-                    className={`absolute h-full ${getChordColor(event.chord)} opacity-30`}
-                    style={{
-                      left: `${eventLeft}%`,
-                      width: `${eventWidth}%`,
-                    }}
-                  />
-                );
-              })}
-              
-              {/* Loop region */}
-              {loopStart > 0 || loopEnd < totalDuration ? (
-                <div 
-                  className="absolute bg-purple-400 h-full rounded-lg opacity-60"
-                  style={{ 
-                    left: `${(loopStart / totalDuration) * 100}%`,
-                    width: `${((loopEnd - loopStart) / totalDuration) * 100}%`
-                  }}
-                />
-              ) : null}
-              
-              {/* Chord markers */}
-              {detectedChords.map((event, index) => (
-                <div
-                  key={index}
-                  className="absolute w-2 h-6 bg-green-500 rounded-full -mt-1"
-                  style={{ 
-                    left: `${((event.timestamp - Math.min(...detectedChords.map(e => e.timestamp))) / totalDuration) * 100}%`,
-                    transform: 'translateX(-50%)'
-                  }}
-                  title={`${event.chord} at ${formatTime(event.timestamp - Math.min(...detectedChords.map(e => e.timestamp)))}`}
-                />
-              ))}
-              
-              {/* Progress bar */}
-              <div 
-                className="absolute bg-blue-500 h-full rounded-lg transition-all duration-100"
-                style={{ 
-                  left: `${(currentTime / totalDuration) * 100}%`,
-                  width: '4px'
-                }}
-              />
-            </div>
-            
-            {/* Chord labels below timeline */}
-            <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400 mt-2">
-              {detectedChords.map((event, index) => {
-                const nextEvent = detectedChords[index + 1];
-                const eventStart = event.timestamp - Math.min(...detectedChords.map(e => e.timestamp));
-                const eventEnd = nextEvent ? nextEvent.timestamp - Math.min(...detectedChords.map(e => e.timestamp)) : eventStart + 1000;
-                const eventCenter = (eventStart + eventEnd) / 2;
-                const eventLeft = (eventCenter / totalDuration) * 100;
-                
-                return (
-                  <div
-                    key={index}
-                    className="absolute text-center"
-                    style={{
-                      left: `${eventLeft}%`,
-                      transform: 'translateX(-50%)',
-                      minWidth: '3rem'
-                    }}
-                  >
-                    <div className="font-semibold">{event.chord}</div>
-                    <div className="text-xs opacity-75">
-                      {formatTime(eventEnd - eventStart)}
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </div>
 
@@ -1457,49 +1032,36 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
               Chord Timeline
             </h4>
             <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
-              {detectedChords.length === 0 ? (
+              {processedChords.length === 0 ? (
                 <p className="text-slate-500 dark:text-slate-400 text-center py-4">
                   No chords recorded yet.
                 </p>
               ) : (
                 <div className="space-y-3">
                   {/* Chord Sections Bar */}
-                  <div className="relative bg-slate-200 dark:bg-slate-600 rounded-lg h-8 overflow-hidden">
-                    {detectedChords.map((event, index) => {
-                      const nextEvent = detectedChords[index + 1];
-                      const eventStart = event.timestamp - Math.min(...detectedChords.map(e => e.timestamp));
-                      // Ensure each chord has at least 1 second duration
-                      const eventEnd = nextEvent ? nextEvent.timestamp - Math.min(...detectedChords.map(e => e.timestamp)) : eventStart + 1000;
-                      const eventDuration = eventEnd - eventStart;
-                      const eventWidth = (eventDuration / totalDuration) * 100;
-                      const eventLeft = (eventStart / totalDuration) * 100;
+                  <div className="relative bg-slate-200 dark:bg-slate-600 rounded-lg h-16 overflow-hidden">
+                    {processedChords.map((event, index) => {
+                      const eventWidth = (event.duration / totalDuration) * 100;
+                      const eventLeft = (event.start / totalDuration) * 100;
                       
                       // Determine if this chord section is currently playing
                       const adjustedTime = currentTime + loopStart;
-                      const isCurrentlyPlaying = adjustedTime >= eventStart && adjustedTime < eventEnd;
-                      
-                      // Get chord color based on chord type
-                      const getChordColor = (chord: string) => {
-                        if (chord.includes('7')) return 'bg-blue-500';
-                        if (chord.includes('m')) return 'bg-green-500';
-                        if (chord.includes('dim')) return 'bg-red-500';
-                        if (chord.includes('aug')) return 'bg-yellow-500';
-                        return 'bg-purple-500';
-                      };
+                      const isCurrentlyPlaying = adjustedTime >= event.start && adjustedTime < event.end;
                       
                       return (
                         <div
                           key={index}
-                          className={`absolute h-full flex items-center justify-center text-white text-xs font-bold transition-all duration-200 ${
-                            isCurrentlyPlaying ? 'ring-2 ring-white ring-opacity-80' : ''
+                          className={`absolute h-full flex items-center justify-center text-white text-lg font-bold transition-all duration-200 cursor-pointer hover:opacity-80 ${
+                            isCurrentlyPlaying ? 'ring-4 ring-white ring-opacity-90 z-10' : ''
                           } ${getChordColor(event.chord)}`}
                           style={{
                             left: `${eventLeft}%`,
                             width: `${eventWidth}%`,
                           }}
-                          title={`${event.chord} (${formatTime(eventStart)} - ${formatTime(eventEnd)})`}
+                          title={`Click to edit ${event.chord} (${formatTime(event.start)} - ${formatTime(event.end)})`}
+                          onClick={() => setEditingChord(event)}
                         >
-                          <span className="px-1 text-center truncate">
+                          <span className="px-2 text-center truncate">
                             {event.chord}
                           </span>
                         </div>
@@ -1508,52 +1070,56 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
                     
                     {/* Playback position indicator */}
                     <div 
-                      className="absolute w-1 bg-white h-full rounded-full shadow-lg z-10 transition-all duration-100"
+                      className="absolute w-1 bg-white h-full rounded-full shadow-lg z-10"
                       style={{ 
-                        left: `${(currentTime / totalDuration) * 100}%`,
+                        left: `${((currentTime + loopStart) / totalDuration) * 100}%`,
                         transform: 'translateX(-50%)'
                       }}
                     />
                   </div>
                   
-                  {/* Chord Section Details */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-                    {detectedChords.map((event, index) => {
-                      const nextEvent = detectedChords[index + 1];
-                      const eventStart = event.timestamp - Math.min(...detectedChords.map(e => e.timestamp));
-                      const eventEnd = nextEvent ? nextEvent.timestamp - Math.min(...detectedChords.map(e => e.timestamp)) : eventStart + 1000;
-                      const eventDuration = eventEnd - eventStart;
-                      
-                      // Determine if this chord section is currently playing
-                      const adjustedTime = currentTime + loopStart;
-                      const isCurrentlyPlaying = adjustedTime >= eventStart && adjustedTime < eventEnd;
-                      
-                      return (
-                        <div
-                          key={index}
-                          className={`p-3 rounded-lg border-2 transition-all duration-200 ${
-                            isCurrentlyPlaying
-                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                              : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800'
-                          }`}
-                        >
-                          <div className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">
-                            {event.chord}
-                          </div>
-                          <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
-                            <div>Duration: {formatTime(eventDuration)}</div>
-                            <div>Start: {formatTime(eventStart)}</div>
-                            <div>End: {formatTime(eventEnd)}</div>
-                            {isCurrentlyPlaying && (
-                              <div className="text-blue-600 dark:text-blue-400 font-semibold mt-2">
-                                Currently Playing
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <div className="text-center mt-2">
+                    <button onClick={() => setDetailsVisible(!detailsVisible)} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                      {detailsVisible ? 'Hide Details' : 'Show Details'}
+                    </button>
                   </div>
+
+                  {/* Chord Section Details */}
+                  {detailsVisible && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                      {processedChords.map((event, index) => {
+                        // Determine if this chord section is currently playing
+                        const adjustedTime = currentTime + loopStart;
+                        const isCurrentlyPlaying = adjustedTime >= event.start && adjustedTime < event.end;
+                        
+                        return (
+                          <div
+                            key={index}
+                            className={`p-3 rounded-lg border-2 transition-all duration-200 cursor-pointer hover:border-blue-400 ${
+                              isCurrentlyPlaying
+                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800'
+                            }`}
+                            onClick={() => setEditingChord(event)}
+                          >
+                            <div className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">
+                              {event.chord}
+                            </div>
+                            <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+                              <div>Duration: {formatTime(event.duration)}</div>
+                              <div>Start: {formatTime(event.start)}</div>
+                              <div>End: {formatTime(event.end)}</div>
+                              {isCurrentlyPlaying && (
+                                <div className="text-blue-600 dark:text-blue-400 font-semibold mt-2">
+                                  Currently Playing
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1657,9 +1223,6 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
                   onChange={(e) => {
                     const newVolume = parseFloat(e.target.value);
                     setVolume(newVolume);
-                    if (howlInstance) {
-                      howlInstance.volume(newVolume);
-                    }
                   }}
                   className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                 />
@@ -1697,41 +1260,58 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
               )}
             </div>
           </div>
+        </>
+      )}
 
-          {/* Chord Progression List */}
-          <div className="mt-6">
-            <h4 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-3">
-              Recorded Progression
-            </h4>
-            <div className="bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
-              {detectedChords.length === 0 ? (
-                <p className="text-slate-500 dark:text-slate-400 text-center py-4">
-                  No chords recorded yet. Start recording to capture your progression.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {detectedChords.map((event, index) => (
-                    <div
-                      key={index}
-                      className={`flex justify-between items-center p-2 rounded ${
-                        currentChord === event.chord && isPlaying
-                          ? 'bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700'
-                          : 'bg-white dark:bg-slate-800'
-                      }`}
+      {editingChord && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setEditingChord(null)}>
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-semibold mb-4 text-slate-800 dark:text-slate-200">Override Chord: {editingChord.chord}</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                  Suggestions from this loop
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {uniqueChordsInLoop.map(chord => (
+                    <button
+                      key={chord}
+                      onClick={() => handleChordUpdate(chord)}
+                      className="px-3 py-1 text-sm rounded-lg bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-200 dark:hover:bg-blue-900"
                     >
-                      <span className="font-mono text-slate-700 dark:text-slate-300">
-                        {event.chord}
-                      </span>
-                      <span className="text-sm text-slate-500 dark:text-slate-400">
-                        {formatTime(event.timestamp)}
-                      </span>
-                    </div>
+                      {chord}
+                    </button>
                   ))}
                 </div>
-              )}
+              </div>
+
+              <div>
+                <h4 className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                  All Chords
+                </h4>
+                <div className="max-h-60 overflow-y-auto pr-2">
+                  <select
+                    onChange={(e) => handleChordUpdate(e.target.value)}
+                    className="w-full p-2 rounded border border-slate-300 dark:bg-slate-700 dark:border-slate-600 text-slate-800 dark:text-slate-200"
+                    value={editingChord.chord}
+                  >
+                    {allChords.map(chord => (
+                      <option key={chord} value={chord}>{chord}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
+
+            <button
+              onClick={() => setEditingChord(null)}
+              className="mt-6 w-full bg-slate-200 hover:bg-slate-300 text-slate-800 dark:bg-slate-600 dark:text-slate-200 dark:hover:bg-slate-500 font-semibold py-2 px-4 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

@@ -17,6 +17,7 @@ export interface UseAudioRecordingReturn {
   startRecording: () => Promise<void>;
   stopRecording: () => void;
   clearChords: () => void;
+  updateDetectedChord: (timestamp: number, newChord: string) => void;
 }
 
 export function useAudioRecording(): UseAudioRecordingReturn {
@@ -88,6 +89,42 @@ export function useAudioRecording(): UseAudioRecordingReturn {
     }, 3000);
   }, []);
 
+  const stopRecording = useCallback(() => {
+    if (analyzerRef.current) {
+      analyzerRef.current.stopRecording();
+    }
+    
+    setState(prev => ({
+      ...prev,
+      isRecording: false,
+      currentChord: null,
+    }));
+
+    if (currentChordTimeoutRef.current) {
+      clearTimeout(currentChordTimeoutRef.current);
+    }
+  }, []);
+
+  const clearChords = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      detectedChords: [],
+      currentChord: null,
+    }));
+  }, []);
+
+  const updateDetectedChord = useCallback((timestamp: number, newChord: string) => {
+    setState(prev => {
+      const updatedChords = prev.detectedChords.map(event => {
+        if (event.timestamp === timestamp) {
+          return { ...event, chord: newChord };
+        }
+        return event;
+      });
+      return { ...prev, detectedChords: updatedChords };
+    });
+  }, []);
+
   const startRecording = useCallback(async () => {
     if (!analyzerRef.current) {
       setState(prev => ({ ...prev, error: 'Audio analyzer not initialized' }));
@@ -121,34 +158,11 @@ export function useAudioRecording(): UseAudioRecordingReturn {
     }
   }, [handleChordDetected]);
 
-  const stopRecording = useCallback(() => {
-    if (analyzerRef.current) {
-      analyzerRef.current.stopRecording();
-    }
-    
-    setState(prev => ({
-      ...prev,
-      isRecording: false,
-      currentChord: null,
-    }));
-
-    if (currentChordTimeoutRef.current) {
-      clearTimeout(currentChordTimeoutRef.current);
-    }
-  }, []);
-
-  const clearChords = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      detectedChords: [],
-      currentChord: null,
-    }));
-  }, []);
-
   return {
     state,
     startRecording,
     stopRecording,
     clearChords,
+    updateDetectedChord,
   };
 }
