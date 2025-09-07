@@ -37,7 +37,7 @@ const normalizeNoteToSharp = (note: string): string => {
 
 const notePositionsCache = new Map<string, Array<{ string: number; fret: number }>>();
 const ALL_NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const OPEN_NOTES = ['E', 'A', 'D', 'G', 'B', 'E']; // 6th to 1st string
+const OPEN_NOTES = ['E', 'B', 'G', 'D', 'A', 'E']; // High E to Low E
 
 function calculateNoteAtFret(openNote: string, fret: number): string {
   const openNoteIndex = ALL_NOTES.indexOf(openNote);

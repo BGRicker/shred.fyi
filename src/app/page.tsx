@@ -15,6 +15,7 @@ export default function Home() {
   const [mode, setMode] = useState<'manual' | 'recording'>('manual');
   const [highlightMode, setHighlightMode] = useState<'chord' | 'progression' | 'both'>('both');
   const [playbackChord, setPlaybackChord] = useState<string | null>(null);
+  const [scaleOverrides, setScaleOverrides] = useState<{ [key: string]: string }>({});
 
   // Audio recording hook
   const { state: audioState, startRecording, stopRecording, clearChords, updateDetectedChord } = useAudioRecording();
@@ -51,16 +52,36 @@ export default function Home() {
     return [];
   }, [activeChord, audioState.detectedChords, progressionAnalysis?.progressionType, currentChordData]);
 
+  const handleProgressionScaleOverride = (scaleName: string) => {
+    setScaleOverrides(prev => ({ ...prev, progression: scaleName }));
+  };
+
+  const handleChordScaleOverride = (scaleName: string) => {
+    if (activeChord) {
+      setScaleOverrides(prev => ({ ...prev, [activeChord]: scaleName }));
+    }
+  };
+
   // --- START: NEW LOGIC for extracting scale names and notes for "Both" mode ---
   const progressionScale = useMemo(() => {
+    const overrideScaleName = scaleOverrides.progression;
+    if (overrideScaleName && progressionAnalysis?.progressionScales) {
+      const overrideScale = progressionAnalysis.progressionScales.find(s => s.name === overrideScaleName);
+      if (overrideScale) return overrideScale;
+    }
     const perfectMatch = progressionAnalysis?.progressionScales?.find(s => s.quality === 'perfect');
     return perfectMatch || progressionAnalysis?.progressionScales?.[0];
-  }, [progressionAnalysis]);
+  }, [progressionAnalysis, scaleOverrides.progression]);
 
   const chordMomentScale = useMemo(() => {
+    const overrideScaleName = activeChord ? scaleOverrides[activeChord] : undefined;
+    if (overrideScaleName) {
+      const overrideScale = scaleSuggestions.find(s => s.name === overrideScaleName);
+      if (overrideScale) return overrideScale;
+    }
     const perfectMatch = scaleSuggestions.find(s => s.quality === 'perfect');
     return perfectMatch || scaleSuggestions[0];
-  }, [scaleSuggestions]);
+  }, [scaleSuggestions, activeChord, scaleOverrides]);
   // --- END: NEW LOGIC ---
 
   // Get the notes to highlight on the fretboard
@@ -297,7 +318,11 @@ export default function Home() {
               <h4 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-3">
                 🎸 Scales for Current Chord: {activeChordData?.name || 'Unknown'}
               </h4>
-              <ScaleSuggestions suggestions={scaleSuggestions} />
+              <ScaleSuggestions 
+                suggestions={scaleSuggestions} 
+                activeScaleName={activeChord ? scaleOverrides[activeChord] : undefined}
+                onScaleSelect={handleChordScaleOverride}
+              />
             </div>
             
             {/* Progression-wide scales */}
@@ -306,7 +331,11 @@ export default function Home() {
                 <h4 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-3">
                   🎵 Scales for Entire Progression (Key: {progressionAnalysis.keySignature})
                 </h4>
-                <ScaleSuggestions suggestions={progressionAnalysis.progressionScales} />
+                <ScaleSuggestions 
+                  suggestions={progressionAnalysis.progressionScales} 
+                  activeScaleName={scaleOverrides.progression}
+                  onScaleSelect={handleProgressionScaleOverride}
+                />
               </div>
             )}
           </div>
