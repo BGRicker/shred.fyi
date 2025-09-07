@@ -914,6 +914,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
         
         <button
           onClick={() => {
+            handleStop(); // Stop playback before clearing
             if (audioUrlRef.current) {
               URL.revokeObjectURL(audioUrlRef.current);
               audioUrlRef.current = null;
