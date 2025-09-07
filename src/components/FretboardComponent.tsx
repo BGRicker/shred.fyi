@@ -1,7 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import {
+  normalizeNoteToSharp,
+  calculateNoteAtFret,
+  calculateInterval,
+  OPEN_NOTES,
+} from '@/lib/fretboardUtils';
 
 // Dynamically import Guitar to avoid SSR issues
 const Guitar = dynamic(() => import('react-guitar'), {
@@ -19,14 +25,20 @@ interface FretboardComponentProps {
   highlightedNotes?: string[]; // Notes to highlight on the fretboard
   highlightMode?: 'chord' | 'progression' | 'both';
   rootNotes?: string[]; // Root notes to distinguish with different styling
+  progressionScaleName?: string;
+  chordMomentScaleName?: string;
+  chordMomentNotes?: string[];
 }
 
 const FretboardComponent: React.FC<FretboardComponentProps> = ({
   strings,
   className = '',
-  highlightedNotes = [],
+  highlightedNotes: progressionNotes = [],
   highlightMode = 'both',
   rootNotes = [],
+  progressionScaleName,
+  chordMomentScaleName,
+  chordMomentNotes = [],
 }) => {
   const [isClient, setIsClient] = useState(false);
   const fretboardRef = useRef<HTMLDivElement>(null);
@@ -34,6 +46,50 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  const normalizedProgressionNotes = useMemo(() => progressionNotes.map(normalizeNoteToSharp), [progressionNotes]);
+  const normalizedChordMomentNotes = useMemo(() => chordMomentNotes.map(normalizeNoteToSharp), [chordMomentNotes]);
+  const normalizedRootNotes = useMemo(() => rootNotes.map(normalizeNoteToSharp), [rootNotes]);
+
+  const fretboardLayout = useMemo(() => {
+    const layout: { note: string; state: 'none' | 'progression' | 'moment' | 'root' }[][] = Array(6)
+      .fill(null)
+      .map(() => Array(13).fill({ note: '', state: 'none' }));
+
+    const progressionNotesSet = new Set(normalizedProgressionNotes);
+    const momentNotesSet = new Set(normalizedChordMomentNotes);
+    const rootNotesSet = new Set(normalizedRootNotes);
+    
+    for (let stringIdx = 0; stringIdx < 6; stringIdx++) {
+      for (let fretIdx = 0; fretIdx <= 12; fretIdx++) {
+        const note = calculateNoteAtFret(OPEN_NOTES[stringIdx], fretIdx);
+        let state: 'none' | 'progression' | 'moment' | 'root' = 'none';
+
+        const isProgression = progressionNotesSet.has(note);
+        const isMoment = momentNotesSet.has(note);
+        const isRoot = rootNotesSet.has(note);
+
+        if (highlightMode === 'both') {
+          if (isMoment) {
+            state = isRoot ? 'root' : 'moment';
+          } else if (isProgression) {
+            state = isRoot ? 'root' : 'progression';
+          }
+        } else if (highlightMode === 'progression') {
+          if (isProgression) {
+            state = isRoot ? 'root' : 'progression';
+          }
+        } else if (highlightMode === 'chord') {
+          if (isMoment) {
+            state = isRoot ? 'root' : 'moment';
+          }
+        }
+        
+        layout[stringIdx][fretIdx] = { note, state };
+      }
+    }
+    return layout;
+  }, [normalizedProgressionNotes, normalizedChordMomentNotes, normalizedRootNotes, highlightMode]);
 
   if (!isClient) {
     return (
@@ -45,12 +101,17 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
     );
   }
 
+  const hasHighlightedNotes = progressionNotes.length > 0 || chordMomentNotes.length > 0;
+  const displayStrings = hasHighlightedNotes ? [-1, -1, -1, -1, -1, -1] : strings;
+
   return (
     <div className={`fretboard-container ${className}`}>
       {/* Enhanced Guitar Fretboard using react-guitar with Scale Note Overlay */}
       <div className="mb-4 relative">
         <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-          Guitar Fretboard with Full Scale Notes
+          {highlightMode === 'progression' && progressionScaleName ? `Progression Scale: ${progressionScaleName}` :
+           highlightMode === 'chord' && chordMomentScaleName ? `Chord of the Moment Scale: ${chordMomentScaleName}` :
+           'Guitar Fretboard with Full Scale Notes'}
         </h4>
         
         {/* React Guitar Component - Simple Full Width Approach */}
@@ -118,56 +179,87 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
             .scale-note {
               width: 2.5em;
               height: 2.5em;
-              background: #3b82f6;
-              color: white;
-              border-radius: 50%;
               display: flex;
               align-items: center;
               justify-content: center;
               font-size: 1.1em;
               font-weight: bold;
+              border-radius: 50%;
+              color: white;
               border: 2px solid white;
               box-shadow: 0 2px 4px rgba(0,0,0,0.3);
               z-index: 10;
+              transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
+            }
+            .scale-note.progression-note {
+              background: #3b82f6; /* blue-500 */
+            }
+            .scale-note.moment-note {
+              background: #22c55e; /* green-500 */
+              z-index: 11; /* Ensure moment notes are visually on top */
             }
             .scale-note.root-note {
-              background: #dc2626;
+              background: #dc2626; /* red-600 */
               border: 3px solid white;
               box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+              z-index: 12; /* Roots are the most important */
             }
           `}</style>
           
-          <div className={`fretboard-wrapper ${highlightedNotes.length > 0 ? 'scale-mode' : ''}`}>
+          <div className={`fretboard-wrapper ${hasHighlightedNotes ? 'scale-mode' : ''}`}>
             <Guitar
-              key={highlightedNotes.length > 0 ? 'scale-mode' : strings.join(',')}
-              strings={highlightedNotes.length > 0 ? [-1, -1, -1, -1, -1, -1] : strings}
+              key={displayStrings.join(',')}
+              strings={displayStrings}
               center={false}
               frets={{ from: 0, amount: 12 }}
               className="w-full"
             />
             
             {/* Scale Note Overlay */}
-            {highlightedNotes.length > 0 && (
+            {hasHighlightedNotes && (
               <div className="scale-overlay">
-                {highlightedNotes.map((note) => {
-                  const positions = findNotePositions(note);
-                  const isRootNote = rootNotes.includes(note);
-                  return positions.map((pos, posIndex) => (
-                    <div
-                      key={`${note}-${pos.string}-${pos.fret}-${posIndex}`}
-                      className={`scale-note ${isRootNote ? 'root-note' : ''}`}
-                      style={{
-                        gridColumn: pos.fret === 0 ? 1 : pos.fret + 1,
-                        gridRow: pos.string + 1,
-                        justifySelf: 'center',
-                        alignSelf: 'center',
-                      }}
-                      title={`${note} on ${getStringName(pos.string)} string, fret ${pos.fret}${isRootNote ? ' (Root Note)' : ''}`}
-                    >
-                      {note}
-                    </div>
-                  ));
-                })}
+                {fretboardLayout.flatMap((stringNotes, stringIndex) =>
+                  stringNotes.map(({ note, state }, fretIndex) => {
+                    if (state === 'none') return null;
+
+                    const isRoot = state === 'root';
+                    const isMoment = state === 'moment';
+                    
+                    let noteClass = '';
+                    let title = note;
+
+                    switch (state) {
+                      case 'progression':
+                        noteClass = 'progression-note';
+                        title = `${note} (Progression Scale)`;
+                        break;
+                      case 'moment':
+                        noteClass = 'moment-note';
+                        title = `${note} (Chord of the Moment)`;
+                        break;
+                      case 'root':
+                        noteClass = 'root-note';
+                        title = `${note} (Root Note)`;
+                        break;
+                    }
+
+                    return (
+                      <div
+                        key={`${stringIndex}-${fretIndex}`}
+                        className={`scale-note ${noteClass}`}
+                        style={{
+                          gridColumn: fretIndex === 0 ? 1 : fretIndex + 1,
+                          gridRow: stringIndex + 1,
+                          justifySelf: 'center',
+                          alignSelf: 'center',
+                        }}
+                        title={title}
+                      >
+                        {note}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             )}
           </div>
@@ -175,7 +267,7 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
       </div>
 
       {/* Scale Notes Display */}
-      {highlightedNotes.length > 0 && (
+      {progressionNotes.length > 0 && (
         <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-700 rounded-lg">
           <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
             {highlightMode === 'chord' ? 'Scale Notes for Current Chord' : 
@@ -183,10 +275,11 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
              'Highlighted Scale Notes'}
           </h4>
           <div className="flex flex-wrap gap-2">
-            {highlightedNotes.map((note, index) => {
-              const isRootNote = rootNotes.includes(note);
-              const rootNote = rootNotes[0]; // Use the first root note for interval calculation
-              const interval = calculateInterval(note, rootNote);
+            {(highlightMode === 'chord' ? chordMomentNotes : progressionNotes).map((note, index) => {
+              const normalizedNote = normalizeNoteToSharp(note);
+              const isRootNote = normalizedRootNotes.includes(normalizedNote);
+              const rootNote = normalizedRootNotes[0]; // Use the first normalized root note
+              const interval = calculateInterval(normalizedNote, rootNote);
               return (
                 <span
                   key={index}
@@ -207,66 +300,5 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
     </div>
   );
 };
-
-/**
- * Find all positions of a note across the fretboard
- */
-function findNotePositions(note: string): Array<{ string: number; fret: number }> {
-  const positions: Array<{ string: number; fret: number }> = [];
-  const openNotes = ['E', 'A', 'D', 'G', 'B', 'E']; // 6th to 1st string
-  
-  openNotes.forEach((openNote, stringIndex) => {
-    for (let fret = 0; fret <= 12; fret++) {
-      const calculatedNote = calculateNoteAtFret(openNote, fret);
-      if (calculatedNote === note) {
-        positions.push({ string: stringIndex, fret });
-      }
-    }
-  });
-  
-  return positions;
-}
-
-/**
- * Get string name for display
- */
-function getStringName(stringIndex: number): string {
-  const stringNames = ['6th (E)', '5th (A)', '4th (D)', '3rd (G)', '2nd (B)', '1st (E)'];
-  return stringNames[stringIndex];
-}
-
-/**
- * Calculate the note at a specific fret on a given string
- */
-function calculateNoteAtFret(openNote: string, fret: number): string {
-  const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-  const openNoteIndex = notes.indexOf(openNote);
-  if (openNoteIndex === -1) return openNote;
-  
-  const noteIndex = (openNoteIndex + fret) % 12;
-  return notes[noteIndex];
-}
-
-/**
- * Calculate the interval from the root note
- */
-function calculateInterval(note: string, rootNote: string): string {
-  if (!rootNote || note === rootNote) return 'Root';
-  
-  const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-  const rootIndex = notes.indexOf(rootNote);
-  const noteIndex = notes.indexOf(note);
-  
-  if (rootIndex === -1 || noteIndex === -1) return '';
-  
-  const semitones = (noteIndex - rootIndex + 12) % 12;
-  
-  const intervals = [
-    'Root', 'm2', 'M2', 'm3', 'M3', 'P4', 
-    '♯4/♭5', 'P5', 'm6', 'M6', 'm7', 'M7'
-  ];
-  
-  return intervals[semitones];
-}
 
 export default FretboardComponent;

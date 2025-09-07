@@ -11,6 +11,7 @@ interface RecordingLoopSystemProps {
   onStopRecording: () => void;
   onClearRecording: () => void;
   onUpdateChord: (timestamp: number, newChord: string) => void;
+  onPlaybackChordChange: (chord: string | null) => void;
 }
 
 const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
@@ -20,6 +21,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
   onStopRecording,
   onClearRecording,
   onUpdateChord,
+  onPlaybackChordChange,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -60,6 +62,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
   
   const [editingChord, setEditingChord] = useState<{ chord: string; timestamp: number } | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState(false);
+  const lastEmittedPlaybackChordRef = useRef<string | null>(null);
 
   // --- START: DRIFT-FREE LOOPING LOGIC ---
 
@@ -145,6 +148,8 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     setIsPlaying(false);
     setCurrentTime(0);
     pauseTimeRef.current = 0; // Reset pause state
+    lastEmittedPlaybackChordRef.current = null;
+    onPlaybackChordChange(null);
     
     // Stop all audio systems
     stopWebAudioLoop();
@@ -172,15 +177,15 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  const getCurrentChord = () => {
+  const getCurrentChord = (timeMs: number) => {
     if (detectedChords.length === 0) return null;
     
-    const adjustedTime = currentTime + loopStart;
+    const adjustedTime = timeMs + loopStart;
     const chord = detectedChords.find((event, index) => {
       const nextEvent = detectedChords[index + 1];
       // Ensure each chord has at least 1 second duration, or until next chord
       const eventStart = getRelativeTimestamp(event.timestamp);
-      const eventEnd = nextEvent ? getRelativeTimestamp(nextEvent.timestamp) : eventStart + 1000;
+      const eventEnd = nextEvent ? getRelativeTimestamp(nextEvent.timestamp) : totalDuration;
       return adjustedTime >= eventStart && adjustedTime < eventEnd;
     });
     
@@ -250,7 +255,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     return chordColorMap.get(chord) || 'bg-gray-500';
   };
 
-  const currentChord = getCurrentChord();
+  const currentChord = getCurrentChord(currentTime + loopStart);
 
   // Debug logging
   useEffect(() => {
@@ -358,6 +363,13 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     
       if (positionInLoopMs !== undefined && positionInLoopMs >= 0) {
         setCurrentTime(positionInLoopMs);
+        
+        // Find and report the current chord
+        const currentChordAtTime = getCurrentChord(positionInLoopMs);
+        if(currentChordAtTime !== lastEmittedPlaybackChordRef.current) {
+          onPlaybackChordChange(currentChordAtTime);
+          lastEmittedPlaybackChordRef.current = currentChordAtTime;
+        }
       }
     
       playbackRef.current = requestAnimationFrame(animate);
@@ -902,6 +914,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
         
         <button
           onClick={() => {
+            handleStop(); // Stop playback before clearing
             if (audioUrlRef.current) {
               URL.revokeObjectURL(audioUrlRef.current);
               audioUrlRef.current = null;
