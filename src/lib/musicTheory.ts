@@ -224,7 +224,8 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
     if (progressionType === 'blues') {
       // Find the root chord (usually the first chord)
       const rootChord = chordSymbols[0];
-      const rootNote = Chord.get(rootChord).tonic;
+      const chordInfo = Chord.get(rootChord);
+      const rootNote = chordInfo.tonic;
       
       if (rootNote) {
         // Minor Pentatonic is the most common, so we list it first.
