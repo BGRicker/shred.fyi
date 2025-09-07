@@ -2,6 +2,12 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import {
+  normalizeNoteToSharp,
+  calculateNoteAtFret,
+  calculateInterval,
+  OPEN_NOTES,
+} from '@/lib/fretboardUtils';
 
 // Dynamically import Guitar to avoid SSR issues
 const Guitar = dynamic(() => import('react-guitar'), {
@@ -22,46 +28,6 @@ interface FretboardComponentProps {
   progressionScaleName?: string;
   chordMomentScaleName?: string;
   chordMomentNotes?: string[];
-}
-
-const normalizeNoteToSharp = (note: string): string => {
-  switch (note) {
-    case 'Bb': return 'A#';
-    case 'Db': return 'C#';
-    case 'Eb': return 'D#';
-    case 'Gb': return 'F#';
-    case 'Ab': return 'G#';
-    default: return note;
-  }
-};
-
-const notePositionsCache = new Map<string, Array<{ string: number; fret: number }>>();
-const ALL_NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const OPEN_NOTES = ['E', 'B', 'G', 'D', 'A', 'E']; // High E to Low E
-
-function calculateNoteAtFret(openNote: string, fret: number): string {
-  const openNoteIndex = ALL_NOTES.indexOf(openNote);
-  if (openNoteIndex === -1) return openNote;
-  const noteIndex = (openNoteIndex + fret) % 12;
-  return ALL_NOTES[noteIndex];
-}
-
-function findNotePositions(note: string): Array<{ string: number; fret: number }> {
-  if (notePositionsCache.has(note)) {
-    return notePositionsCache.get(note)!;
-  }
-
-  const positions: Array<{ string: number; fret: number }> = [];
-  OPEN_NOTES.forEach((openNote, stringIndex) => {
-    for (let fret = 0; fret <= 12; fret++) {
-      if (calculateNoteAtFret(openNote, fret) === note) {
-        positions.push({ string: stringIndex, fret });
-      }
-    }
-  });
-
-  notePositionsCache.set(note, positions);
-  return positions;
 }
 
 const FretboardComponent: React.FC<FretboardComponentProps> = ({
@@ -334,39 +300,5 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
     </div>
   );
 };
-
-/**
- * Get string name for display
- */
-function getStringName(stringIndex: number): string {
-  const stringNames = ['6th (E)', '5th (A)', '4th (D)', '3rd (G)', '2nd (B)', '1st (E)'];
-  return stringNames[stringIndex];
-}
-
-/**
- * Calculate the interval from the root note
- */
-function calculateInterval(note: string, rootNote: string): string {
-  if (!rootNote) return '';
-  const normalizedNote = normalizeNoteToSharp(note);
-  const normalizedRootNote = normalizeNoteToSharp(rootNote);
-
-  if (normalizedNote === normalizedRootNote) return 'Root';
-  
-  const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-  const rootIndex = notes.indexOf(normalizedRootNote);
-  const noteIndex = notes.indexOf(normalizedNote);
-  
-  if (rootIndex === -1 || noteIndex === -1) return '';
-  
-  const semitones = (noteIndex - rootIndex + 12) % 12;
-  
-  const intervals = [
-    'Root', 'm2', 'M2', 'm3', 'M3', 'P4', 
-    '♯4/♭5', 'P5', 'm6', 'M6', 'm7', 'M7'
-  ];
-  
-  return intervals[semitones];
-}
 
 export default FretboardComponent;

@@ -1,12 +1,15 @@
-import { Chord, Scale } from 'tonal';
+import { Chord, Scale, Note } from 'tonal';
+import { ScaleSuggestion } from '@/types/music';
 
+// Describes the quality of a scale suggestion
 export interface ScaleSuggestion {
   name: string;
+  quality: 'perfect' | 'good' | 'possible';
   notes: string[];
   intervals: string[];
-  quality: 'perfect' | 'good' | 'possible';
 }
 
+// Result of analyzing a chord progression
 export interface ProgressionAnalysis {
   chordScales: ScaleSuggestion[];
   progressionScales: ScaleSuggestion[];
@@ -323,38 +326,19 @@ function determineKeySignature(chordSymbols: string[], progressionType: 'blues' 
 function calculateScaleCompatibility(chordNotes: string[], scaleNotes: string[]): number {
   if (chordNotes.length === 0 || scaleNotes.length === 0) return 0;
 
-  const chordNoteSet = new Set(chordNotes.map(n => n.slice(0, -1))); // Remove octave
-  const scaleNoteSet = new Set(scaleNotes.map(n => n.slice(0, -1)));
+  const chordNoteSet = new Set(chordNotes);
+  const scaleNoteSet = new Set(scaleNotes);
 
   let matches = 0;
-  let clashes = 0;
-
-  // Check for matches and clashes
+  
   for (const chordNote of chordNoteSet) {
     if (scaleNoteSet.has(chordNote)) {
       matches++;
     }
-
-    // Check for clashes (notes a half-step away)
-    const charCode = chordNote.charCodeAt(0);
-    const accidental = chordNote.length > 1 ? chordNote.charAt(1) : '';
-    
-    // Simplified clash detection - check for notes a half-step below that are in the scale
-    // This catches the most common clash, e.g., G# in major scale vs G in dominant 7th chord.
-    if (accidental === '#') {
-      const naturalNote = String.fromCharCode(charCode);
-      if(scaleNoteSet.has(naturalNote)) clashes++;
-    } else {
-      const sharpNote = String.fromCharCode(charCode) + '#';
-      // Find note a half step below. Wrap around from C to B.
-      const prevNoteCharCode = charCode === 65 ? 71 : charCode - 1; // A -> G, etc.
-      const noteBelow = String.fromCharCode(prevNoteCharCode);
-       if(scaleNoteSet.has(noteBelow) && noteBelow !== 'B' && noteBelow !== 'E') clashes++; // Avoid B/C and E/F simple clashes
-    }
   }
 
-  const compatibility = (matches / chordNoteSet.size) - (clashes * 0.5); // Penalize clashes
-  return Math.max(0, compatibility); // Ensure score is not negative
+  const compatibility = matches / chordNoteSet.size;
+  return Math.max(0, compatibility);
 }
 
 /**

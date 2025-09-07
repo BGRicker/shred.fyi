@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ScaleSuggestion } from '@/lib/musicTheory';
+import { ScaleSuggestion } from '@/types/music';
 
 interface ScaleSuggestionsProps {
   suggestions: ScaleSuggestion[];
