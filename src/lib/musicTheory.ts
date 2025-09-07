@@ -1,14 +1,6 @@
 import { Chord, Scale, Note } from 'tonal';
 import { ScaleSuggestion } from '@/types/music';
 
-// Describes the quality of a scale suggestion
-export interface ScaleSuggestion {
-  name: string;
-  quality: 'perfect' | 'good' | 'possible';
-  notes: string[];
-  intervals: string[];
-}
-
 // Result of analyzing a chord progression
 export interface ProgressionAnalysis {
   chordScales: ScaleSuggestion[];
