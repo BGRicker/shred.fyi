@@ -2,6 +2,50 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AudioAnalyzer, ChordDetectionEvent } from '@/lib/audioAnalysis';
+import { chordDefinitions } from '@/lib/chords';
+
+const CHORD_SMOOTHING_WINDOW_MS = 1200;
+
+const getChordRoot = (chord: string): string => {
+  const match = chord.match(/^([A-G](?:#|b)?)/);
+  return match ? match[1] : chord;
+};
+
+const preferExtendedChord = (a: string, b: string) => {
+  const aHas7 = /7/.test(a);
+  const bHas7 = /7/.test(b);
+  if (aHas7 && !bHas7) return a;
+  if (!aHas7 && bHas7) return b;
+  return b; // prefer the newest chord otherwise
+};
+
+const mergeChordEvent = (
+  events: ChordDetectionEvent[],
+  newEvent: ChordDetectionEvent,
+  windowMs: number
+): ChordDetectionEvent[] => {
+  if (events.length === 0) {
+    return [newEvent];
+  }
+
+  const lastEvent = events[events.length - 1];
+  const withinWindow = newEvent.timestamp - lastEvent.timestamp <= windowMs;
+  const sameRoot = getChordRoot(lastEvent.chord) === getChordRoot(newEvent.chord);
+
+  if (withinWindow && sameRoot) {
+    const mergedChord = preferExtendedChord(lastEvent.chord, newEvent.chord);
+    const mergedEvent: ChordDetectionEvent = {
+      ...lastEvent,
+      chord: mergedChord,
+      rawChord: newEvent.rawChord || lastEvent.rawChord,
+      confidence: Math.max(lastEvent.confidence, newEvent.confidence),
+      timestamp: newEvent.timestamp,
+    };
+    return [...events.slice(0, -1), mergedEvent];
+  }
+
+  return [...events, newEvent];
+};
 
 export interface RecordingState {
   isRecording: boolean;
@@ -10,6 +54,7 @@ export interface RecordingState {
   hasPermission: boolean;
   detectedChords: ChordDetectionEvent[];
   currentChord: string | null;
+  smoothingWindowMs: number;
 }
 
 export interface UseAudioRecordingReturn {
@@ -28,6 +73,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
     hasPermission: false,
     detectedChords: [],
     currentChord: null,
+    smoothingWindowMs: CHORD_SMOOTHING_WINDOW_MS,
   });
 
   const analyzerRef = useRef<AudioAnalyzer | null>(null);
@@ -67,11 +113,23 @@ export function useAudioRecording(): UseAudioRecordingReturn {
   }, []);
 
   const handleChordDetected = useCallback((event: ChordDetectionEvent) => {
-    console.log('Hook received chord detection:', event);
+    console.log('Hook received chord detection:', {
+      normalizedChord: event.chord,
+      rawChord: event.rawChord,
+      confidence: event.confidence.toFixed(2),
+      timestamp: event.timestamp,
+    });
+
+    if (!event.chord || !chordDefinitions[event.chord]) {
+      console.debug('Discarding unsupported chord event', event);
+      return;
+    }
+
     setState(prev => {
+      const smoothedChords = mergeChordEvent(prev.detectedChords, event, prev.smoothingWindowMs);
       const newState = {
         ...prev,
-        detectedChords: [...prev.detectedChords, event],
+        detectedChords: smoothedChords,
         currentChord: event.chord,
         error: null,
       };

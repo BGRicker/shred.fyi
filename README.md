@@ -1,100 +1,78 @@
 # Shredly - Guitar Practice Assistant
 
-A web application that listens to guitar playing through the microphone, detects chords and progressions in real time, and provides visual + theoretical feedback. The app highlights playable scales and notes on a fretboard visualization and supports **zero-latency looping** for practice.
+A web application that listens to guitar playing through the microphone, detects chords and progressions in real time, and provides visual + theoretical feedback. The app highlights playable scales and notes on a fretboard visualization and supports low-latency looping for practice.
 
 ## 🎸 Core Features
 
 ### Real-Time Chord Detection
-- **Microphone input** via Web Audio API
-- **Real-time chord recognition** using Tonal.js
-- **Progression analysis** with scale suggestions
-- **Smart silence detection** for automatic recording start/stop
+- Microphone input via Web Audio API (guitar-friendly settings)
+- Real-time chord recognition using Tonal.js
+- Progression analysis with scale suggestions (chord-level and progression-wide)
+- Smart silence detection for automatic recording stop
 
 ### Interactive Fretboard Visualization
-- **Scale note highlighting** across the entire fretboard
-- **Root note distinction** with different colors
-- **Interval information** from root to scale notes
-- **Multiple display modes**: Chord notes, progression scales, or both
+- Scale note highlighting across the entire fretboard
+- Distinct layers for Progression Scale (base) and Chord-of-the-Moment Scale (overlay)
+- Root note distinction with separate styling
+- Interval information from root to displayed scale notes
+- Multiple display modes: chord, progression, or both
+- Accurate enharmonic handling (flats normalized internally to sharps)
 
-### Professional Recording & Looping System
-- **3-second countdown** with click sounds for predictable recording start
-- **Automatic silence trimming** from both ends of recordings
-- **Zero-latency loop restart** using pre-buffered circular audio
-- **Chord timeline visualization** showing which chord plays when
-- **Multiple audio systems** for maximum compatibility:
-  - **Circular Buffer System** (Primary): Pre-allocated 2x loop buffer for seamless transitions
-  - **Gapless Buffer System** (Secondary): 3x loop buffer with chained audio sources
-  - **Native Web Audio Looping** (Tertiary): Hardware-accelerated native looping
-  - **Howler.js** (Fallback): High-performance audio library
+### Recording & Looping
+- 3-second countdown with click sounds before recording starts
+- Automatic silence trimming using OfflineAudioContext
+- Ultra-low-latency loop playback using native Web Audio API looping
+- Chord timeline visualization during playback
+- Clearing the recording now stops the loop immediately
+
+### Scale Overrides (New)
+- Click any suggested scale to set it as the active scale for:
+  - The current chord (Chord-of-the-Moment)
+  - The entire progression (Progression Scale)
+- Fretboard updates immediately and shows the selected override as active
+
+### Progressive UI (New)
+- Fretboard, scale recommendations, and Current Chord are hidden until the first chord is detected to keep the initial UI focused
 
 ## 🚀 Technical Approach
 
-### Zero-Latency Looping Architecture
-Our looper uses a **multi-tier audio system** to achieve true zero-latency loop restart:
+### Audio Pipeline
+- Recording: MediaRecorder (mono, 44.1kHz) with guitar-friendly constraints
+- Live analysis: Web Audio API `AnalyserNode` → custom frequency analysis → Tonal.js
+- Trimming: OfflineAudioContext-based silence removal
+- Playback/Looping: Web Audio API `AudioBufferSourceNode` with drift-free scheduling
 
-1. **Circular Buffer (Primary)**: Creates a 2x loop duration buffer with native Web Audio API looping
-2. **Gapless Buffer (Secondary)**: 3x loop buffer with chained AudioBufferSourceNode instances
-3. **Native Looping (Tertiary)**: Web Audio API's built-in `source.loop = true` with precise boundaries
-4. **Howler.js (Fallback)**: 60fps monitoring for instant loop detection
+### Music Theory
+- Tonal.js for chord and scale analysis
+- Context-aware blues logic for I–IV–V progressions
+- Compatibility scoring based on chord tones vs scale notes
 
-### Audio Processing Pipeline
-- **Recording**: MediaRecorder with real-time silence detection
-- **Trimming**: OfflineAudioContext for precise silence removal
-- **Playback**: Hardware-accelerated audio scheduling
-- **Looping**: Pre-allocated buffers with native browser timing
+### Fretboard
+- `react-guitar` base with CSS Grid overlay for precise scale note rendering
+- Single-pass rendering model to prevent visual accumulation/duplicates
 
-## 🎵 User Experience
+## 🖥 Getting Started
 
-### Recording Workflow
-1. **Click "Start Recording"** → 3-second countdown begins
-2. **Hear 3 clicks** → Get ready to play
-3. **Final click (different sound)** → Start playing immediately
-4. **Recording starts** → Perfect timing guaranteed
-
-### Practice Features
-- **Chord timeline** shows progression structure
-- **Scale suggestions** for each chord and entire progression
-- **Fretboard highlighting** of safe notes to play
-- **Seamless looping** for continuous practice
-
-## 🛠 Getting Started
-
-First, run the development server:
+Install dependencies and run the dev server:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# or: yarn dev / pnpm dev / bun dev
 ```
 
-Open [http://localhost:3001](http://localhost:3001) with your browser to see the result.
-
-## 🎯 Target Users
-
-- **Guitarists** (beginner → intermediate → advanced) looking to practice soloing over chord progressions
-- **Music students** interested in theory-in-practice feedback
-- **Teachers** demonstrating chord/scale relationships
+Open the URL printed in your terminal (typically `http://localhost:3000`).
 
 ## 🔧 Technical Stack
+- Frontend: Next.js (App Router), React, Tailwind CSS
+- Audio: Web Audio API, MediaRecorder API
+- Music Theory: Tonal.js
+- Fretboard: `react-guitar`
 
-- **Frontend**: Next.js 15, React 19, Tailwind CSS v4
-- **Audio**: Web Audio API, MediaRecorder API, Howler.js
-- **Music Theory**: Tonal.js for chord/scale analysis
-- **Fretboard**: react-guitar library with custom overlays
-- **Deployment**: Vercel (optimized for Next.js)
+## 📌 Notes
+- Voice commands (e.g., saying "stop" to stop the loop) are not implemented; feasible via Web Speech API if desired.
+- Essentia.js bindings/types exist for future use, but current analysis runs on custom frequency analysis with Tonal.js.
 
 ## 📚 Learn More
-
-To learn more about the technical implementation, see:
-- [Looper Technical Documentation](./docs/looper-technical.md) - Detailed explanation of the looping system
-- [Product Requirements](./product-requirement-document.md) - Complete feature specification
-
-## 🚀 Deploy on Vercel
-
-The easiest way to deploy this Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Looper notes and technical ideas: `docs/looper-technical.md`
+- Product Requirements: `product-requirement-document.md`

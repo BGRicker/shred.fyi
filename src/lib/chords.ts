@@ -5,7 +5,7 @@
 export interface ChordDefinition {
   name: string;
   fingering: number[];
-  category: 'major' | 'minor' | 'seventh';
+  category: 'major' | 'minor' | 'seventh' | 'major7' | 'add9';
   symbol: string; // Tonal.js compatible chord symbol
 }
 
@@ -18,7 +18,7 @@ export const chordDefinitions: Record<string, ChordDefinition> = {
     symbol: 'C'
   },
   'D': {
-    name: 'D major', 
+    name: 'D major',
     fingering: [-1, -1, 0, 2, 3, 2],
     category: 'major',
     symbol: 'D'
@@ -140,6 +140,93 @@ export const chordDefinitions: Record<string, ChordDefinition> = {
     fingering: [3, 2, 0, 0, 0, 1],
     category: 'seventh',
     symbol: 'G7'
+  },
+  // Major 7th Chords
+  'Cmaj7': {
+    name: 'C major 7th',
+    fingering: [-1, 3, 2, 0, 0, 0],
+    category: 'major7',
+    symbol: 'Cmaj7'
+  },
+  'Dmaj7': {
+    name: 'D major 7th',
+    fingering: [-1, -1, 0, 2, 2, 2],
+    category: 'major7',
+    symbol: 'Dmaj7'
+  },
+  'Emaj7': {
+    name: 'E major 7th',
+    fingering: [0, 2, 1, 1, 0, 0],
+    category: 'major7',
+    symbol: 'Emaj7'
+  },
+  'Fmaj7': {
+    name: 'F major 7th',
+    fingering: [1, 3, 2, 2, 1, 1],
+    category: 'major7',
+    symbol: 'Fmaj7'
+  },
+  'Gmaj7': {
+    name: 'G major 7th',
+    fingering: [3, 2, 0, 0, 0, 2],
+    category: 'major7',
+    symbol: 'Gmaj7'
+  },
+  'Amaj7': {
+    name: 'A major 7th',
+    fingering: [-1, 0, 2, 1, 2, 0],
+    category: 'major7',
+    symbol: 'Amaj7'
+  },
+  'Bmaj7': {
+    name: 'B major 7th',
+    fingering: [-1, 2, 4, 3, 4, 2],
+    category: 'major7',
+    symbol: 'Bmaj7'
+  },
+
+  // Add9 Chords
+  'Cadd9': {
+    name: 'C add 9',
+    fingering: [-1, 3, 2, 0, 3, 0],
+    category: 'add9',
+    symbol: 'Cadd9'
+  },
+  'Dadd9': {
+    name: 'D add 9',
+    fingering: [-1, -1, 0, 2, 3, 0],
+    category: 'add9',
+    symbol: 'Dadd9'
+  },
+  'Eadd9': {
+    name: 'E add 9',
+    fingering: [0, 2, 2, 1, 0, 2],
+    category: 'add9',
+    symbol: 'Eadd9'
+  },
+  'Fadd9': {
+    name: 'F add 9',
+    fingering: [1, 3, 3, 2, 1, 3],
+    category: 'add9',
+    symbol: 'Fadd9'
+  },
+  'Gadd9': {
+    name: 'G add 9',
+    fingering: [3, 2, 0, 2, 0, 3],
+    category: 'add9',
+    symbol: 'Gadd9'
+  },
+  'Aadd9': {
+    name: 'A add 9',
+    fingering: [-1, 0, 2, 2, 0, 0],
+    category: 'add9',
+    symbol: 'Aadd9'
+  },
+  'Badd9': {
+    name: 'B add 9',
+    fingering: [-1, 2, 4, 4, 2, 2],
+    category: 'add9',
+    symbol: 'Badd9'
   }
 };
 
@@ -147,7 +234,7 @@ export const getChordNames = (): string[] => {
   return Object.keys(chordDefinitions);
 };
 
-export const getChordsByCategory = (category: 'major' | 'minor' | 'seventh'): ChordDefinition[] => {
+export const getChordsByCategory = (category: 'major' | 'minor' | 'seventh' | 'major7' | 'add9'): ChordDefinition[] => {
   return Object.values(chordDefinitions).filter(chord => chord.category === category);
 };
 
