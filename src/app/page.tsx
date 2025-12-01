@@ -88,7 +88,7 @@ export default function Home() {
   const progressionNotes = useMemo(() => {
     try {
       return Scale.get(activeScale).notes;
-    } catch (e) {
+    } catch {
       return [];
     }
   }, [activeScale]);
@@ -107,6 +107,27 @@ export default function Home() {
       return [];
     }
   }, [activeScale]);
+
+  // Get scale for current chord (with override support)
+  const getCurrentChordScale = useMemo(() => {
+    if (!currentPlaybackChord || scaleMode !== 'follow') {
+      return activeScale;
+    }
+
+    // Find the current chord in detectedChords to get its timestamp
+    const currentChordData = detectedChords.find(c => c.chord === currentPlaybackChord);
+    if (!currentChordData) return activeScale;
+
+    // Check for override
+    const overrideKey = `${currentChordData.timestamp}-${currentPlaybackChord}`;
+    if (chordScaleOverrides.has(overrideKey)) {
+      return chordScaleOverrides.get(overrideKey)!;
+    }
+
+    // Fall back to auto-suggestion
+    const suggestions = getScaleSuggestions(currentPlaybackChord);
+    return suggestions[0]?.name || activeScale;
+  }, [currentPlaybackChord, scaleMode, activeScale, detectedChords, chordScaleOverrides]);
 
   const safeHighlightedNotes = useMemo(() => {
     if (scaleMode === 'follow') {
@@ -129,27 +150,6 @@ export default function Home() {
     }
     return rootNotes;
   }, [scaleMode, getCurrentChordScale, rootNotes]);
-
-  // Get scale for current chord (with override support)
-  const getCurrentChordScale = useMemo(() => {
-    if (!currentPlaybackChord || scaleMode !== 'follow') {
-      return activeScale;
-    }
-
-    // Find the current chord in detectedChords to get its timestamp
-    const currentChordData = detectedChords.find(c => c.chord === currentPlaybackChord);
-    if (!currentChordData) return activeScale;
-
-    // Check for override
-    const overrideKey = `${currentChordData.timestamp}-${currentPlaybackChord}`;
-    if (chordScaleOverrides.has(overrideKey)) {
-      return chordScaleOverrides.get(overrideKey)!;
-    }
-
-    // Fall back to auto-suggestion
-    const suggestions = getScaleSuggestions(currentPlaybackChord);
-    return suggestions[0]?.name || activeScale;
-  }, [currentPlaybackChord, scaleMode, activeScale, detectedChords, chordScaleOverrides]);
 
   // Update current chord timestamp when playback chord changes
   useEffect(() => {

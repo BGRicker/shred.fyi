@@ -169,7 +169,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     if (audioSourceNodeRef.current) {
       try {
         audioSourceNodeRef.current.stop();
-      } catch (e) {
+      } catch {
         // Can ignore errors if the source is already stopped
       }
       audioSourceNodeRef.current.disconnect();
