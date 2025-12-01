@@ -404,21 +404,27 @@ export function getComparableChords(
     }
 
     // 2. Relative Major/Minor
-    if (chord.quality === 'Major') {
-      const relativeMinor = Note.transpose(root, '-3m');
+  if (chord.quality === 'Major') {
+    const relativeMinor = Note.transpose(root, '-3m');
+    if (relativeMinor) {
       add(`${relativeMinor}m`);
       add(`${relativeMinor}m7`);
-    } else if (chord.quality === 'Minor') {
-      const relativeMajor = Note.transpose(root, '3m');
+    }
+  } else if (chord.quality === 'Minor') {
+    const relativeMajor = Note.transpose(root, '3m');
+    if (relativeMajor) {
       add(`${relativeMajor}`);
       add(`${relativeMajor}maj7`);
     }
+  }
 
-    // 3. Tritone Substitution (for Dominant chords)
-    if (chord.type === 'dominant seventh' || chord.aliases.includes('7')) {
-      const tritoneRoot = Note.transpose(root, '4A'); // Augmented 4th = Tritone
+  // 3. Tritone Substitution (for Dominant chords)
+  if (chord.type === 'dominant seventh' || chord.aliases.includes('7')) {
+    const tritoneRoot = Note.transpose(root, '4A'); // Augmented 4th = Tritone
+    if (tritoneRoot) {
       add(`${tritoneRoot}7`);
     }
+  }
 
     // 4. Parallel Major/Minor
     if (chord.quality === 'Major') {

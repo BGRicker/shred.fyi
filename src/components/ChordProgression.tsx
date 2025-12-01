@@ -42,8 +42,8 @@ function getChordColors(chordRoot: string, progressionRoot: string) {
   const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
   // Normalize roots to remove sharp/flat ambiguity if needed, but for now assume standard
-  const rootIndex = notes.indexOf(progressionRoot.replace(/[0-9maugdim]/g, ''));
-  const chordIndex = notes.indexOf(chordRoot.replace(/[0-9maugdim]/g, ''));
+  const rootIndex = notes.indexOf(progressionRoot.replace(/[0-9augdim]/g, ''));
+  const chordIndex = notes.indexOf(chordRoot.replace(/[0-9augdim]/g, ''));
 
   if (rootIndex === -1 || chordIndex === -1) {
     // Default to green if we can't find the notes
@@ -127,6 +127,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
   // Drag state for boundary adjustment
   const [draggingBoundary, setDraggingBoundary] = useState<number | null>(null);
   const [dragStartX, setDragStartX] = useState(0);
+  const [dragStartDurations, setDragStartDurations] = useState<[number, number] | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Merge consecutive chords
@@ -145,7 +146,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
 
     let current = {
       name: sortedChords[0].chord,
-      root: sortedChords[0].chord.replace(/[0-9maugdim]/g, ''),
+      root: sortedChords[0].chord.replace(/[0-9augdim]/g, ''),
       time: sortedChords[0].timestamp,
       duration: 0, // Will calculate
       startBar: 1,
@@ -166,7 +167,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
 
         current = {
           name: sortedChords[i].chord,
-          root: sortedChords[i].chord.replace(/[0-9maugdim]/g, ''),
+          root: sortedChords[i].chord.replace(/[0-9augdim]/g, ''),
           time: nextTime,
           duration: 0,
           startBar: merged.length + 1,
@@ -205,37 +206,40 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
   const handleBoundaryMouseDown = (e: React.MouseEvent, boundaryIndex: number) => {
     e.preventDefault();
     e.stopPropagation();
-    setDraggingBoundary(boundaryIndex);
-    setDragStartX(e.clientX);
+    const currentChord = mergedChords[boundaryIndex];
+    const nextChord = mergedChords[boundaryIndex + 1];
+    if (currentChord && nextChord) {
+      setDraggingBoundary(boundaryIndex);
+      setDragStartX(e.clientX);
+      setDragStartDurations([currentChord.duration, nextChord.duration]);
+    }
   };
 
-  const handleMouseMove = (e: MouseEvent) => {
-    if (draggingBoundary === null || !containerRef.current || !onTimingAdjust) return;
+  const handleMouseMove = React.useCallback((e: MouseEvent) => {
+    if (draggingBoundary === null || !containerRef.current || !onTimingAdjust || !dragStartDurations) return;
 
     const deltaX = e.clientX - dragStartX;
     const containerWidth = containerRef.current.offsetWidth;
     const deltaTime = (deltaX / containerWidth) * totalDuration;
 
-    // Calculate new duration for the chord being adjusted
     const currentChord = mergedChords[draggingBoundary];
-    const nextChord = mergedChords[draggingBoundary + 1];
+    if (!currentChord) return;
 
-    if (!currentChord || !nextChord) return;
+    const [originalCurrentDuration, originalNextDuration] = dragStartDurations;
 
-    const newDuration = Math.max(0.5, currentChord.duration + deltaTime);
-    const nextNewDuration = Math.max(0.5, nextChord.duration - deltaTime);
+    const newDuration = Math.max(0.5, originalCurrentDuration + deltaTime);
+    const nextNewDuration = Math.max(0.5, originalNextDuration - deltaTime);
 
-    // Only update if both chords maintain minimum duration
-    if (newDuration >= 0.5 && nextNewDuration >= 0.5) {
+    if (newDuration > 0.5 && nextNewDuration > 0.5) {
       const newBoundaryTime = currentChord.time + newDuration;
       onTimingAdjust(draggingBoundary, newBoundaryTime);
-      setDragStartX(e.clientX);
     }
-  };
+  }, [draggingBoundary, dragStartDurations, dragStartX, mergedChords, totalDuration, onTimingAdjust]);
 
-  const handleMouseUp = () => {
+  const handleMouseUp = React.useCallback(() => {
     setDraggingBoundary(null);
-  };
+    setDragStartDurations(null);
+  }, []);
 
   // Add/remove mouse event listeners for dragging
   React.useEffect(() => {
@@ -247,7 +251,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [draggingBoundary, dragStartX, mergedChords, totalDuration, onTimingAdjust]);
+  }, [draggingBoundary, handleMouseMove, handleMouseUp]);
 
   return (
     <div className="w-full">

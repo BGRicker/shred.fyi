@@ -143,15 +143,17 @@ export default function Home() {
 
   // Handler for scale override
   const handleScaleOverride = (scaleName: string) => {
-    if (currentPlaybackChord && currentChordTimestamp !== null) {
+    if (scaleMode === 'follow' && currentPlaybackChord && currentChordTimestamp !== null) {
       const overrideKey = `${currentChordTimestamp}-${currentPlaybackChord}`;
       setChordScaleOverrides(prev => {
         const newMap = new Map(prev);
         newMap.set(overrideKey, scaleName);
         return newMap;
       });
+      setActiveScale(scaleName);
+    } else {
+      setActiveScale(scaleName);
     }
-    setActiveScale(scaleName);
   };
 
   return (

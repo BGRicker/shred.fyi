@@ -77,27 +77,23 @@ function buildScaleInfo({
   chordNotes: string[];
   rootNotes: string[];
 }): ScaleInfo | null {
-  const activeNotes =
-    highlightMode === 'chord' && chordNotes.length > 0 ? chordNotes : progressionNotes;
+  if (highlightMode === 'chord' && chordNotes.length > 0) {
+    return {
+      name: chordMomentScaleName || 'Chord Scale',
+      root: normalizeNoteToSharp(rootNotes[0] || chordNotes[0] || 'A'),
+      notes: chordNotes.map(normalizeNoteToSharp),
+    };
+  }
 
-  if (activeNotes.length === 0 && chordNotes.length === 0) return null;
+  if (progressionNotes.length > 0) {
+    return {
+      name: progressionScaleName || 'Progression Scale',
+      root: normalizeNoteToSharp(rootNotes[0] || progressionNotes[0] || 'A'),
+      notes: progressionNotes.map(normalizeNoteToSharp),
+    };
+  }
 
-  const root = normalizeNoteToSharp(
-    rootNotes[0] || activeNotes[0] || chordNotes[0] || 'A',
-  );
-
-  const name =
-    highlightMode === 'chord' && chordMomentScaleName
-      ? chordMomentScaleName
-      : progressionScaleName || 'Scale';
-
-  const notes = activeNotes.length > 0 ? activeNotes : chordNotes;
-
-  return {
-    name,
-    root,
-    notes: notes.map(normalizeNoteToSharp),
-  };
+  return null;
 }
 
 export default function FretboardComponent({
@@ -323,12 +319,13 @@ export default function FretboardComponent({
                             </motion.div>
                           )}
 
-                          {!noteInfo && stringIndex === 2 && [3, 5, 7, 9, 15].includes(fretIndex) && (
+                          {!noteInfo && stringIndex === 2 && [3, 5, 7, 9, 15].includes(fretIndex) && fretIndex < numFrets && (
                             <div className="w-2.5 h-2.5 rounded-full bg-amber-400/30 opacity-60" />
                           )}
                           {!noteInfo &&
                             stringIndex === 2 &&
-                            [12].includes(fretIndex) && (
+                            [12].includes(fretIndex) &&
+                            fretIndex < numFrets && (
                               <div className="w-2.5 h-2.5 rounded-full bg-amber-400/40 opacity-80" />
                             )}
                         </div>

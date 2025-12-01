@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
     if (!config.externals) {
       config.externals = [];
     }
+
+    if (!Array.isArray(config.externals)) {
+      config.externals = [];
+    }
     config.externals.push({
       'utf-8-validate': 'commonjs utf-8-validate',
       'bufferutil': 'commonjs bufferutil',

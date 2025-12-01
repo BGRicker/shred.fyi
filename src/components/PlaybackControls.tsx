@@ -47,7 +47,7 @@ export function PlaybackControls({
                 {isPlaying ? (
                     <Pause className="w-8 h-8 text-white" />
                 ) : (
-                    <Play className="w-8 h-8 text-white ml-1" />
+                    <Play className="w-8 h-8 text-white" />
                 )}
             </button>
 
