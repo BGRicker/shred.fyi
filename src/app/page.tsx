@@ -108,6 +108,28 @@ export default function Home() {
     }
   }, [activeScale]);
 
+  const safeHighlightedNotes = useMemo(() => {
+    if (scaleMode === 'follow') {
+      try {
+        return Scale.get(getCurrentChordScale).notes;
+      } catch {
+        return progressionNotes;
+      }
+    }
+    return progressionNotes;
+  }, [scaleMode, getCurrentChordScale, progressionNotes]);
+
+  const safeRootNotes = useMemo(() => {
+    if (scaleMode === 'follow') {
+      try {
+        return [Scale.get(getCurrentChordScale).tonic || ''];
+      } catch {
+        return rootNotes;
+      }
+    }
+    return rootNotes;
+  }, [scaleMode, getCurrentChordScale, rootNotes]);
+
   // Get scale for current chord (with override support)
   const getCurrentChordScale = useMemo(() => {
     if (!currentPlaybackChord || scaleMode !== 'follow') {
@@ -251,27 +273,9 @@ export default function Home() {
         >
           <FretboardComponent
             strings={[64, 59, 55, 50, 45, 40]}
-            highlightedNotes={() => {
-              if (scaleMode === 'follow') {
-                try {
-                  return Scale.get(getCurrentChordScale).notes;
-                } catch {
-                  return progressionNotes;
-                }
-              }
-              return progressionNotes;
-            }()}
+            highlightedNotes={safeHighlightedNotes}
             highlightMode={scaleMode === 'follow' ? 'chord' : 'progression'}
-            rootNotes={() => {
-              if (scaleMode === 'follow') {
-                try {
-                  return [Scale.get(getCurrentChordScale).tonic || ''];
-                } catch {
-                  return rootNotes;
-                }
-              }
-              return rootNotes;
-            }()}
+            rootNotes={safeRootNotes}
             progressionScaleName={scaleMode === 'follow' ? getCurrentChordScale : activeScale}
             chordMomentScaleName={currentPlaybackChord ? `${currentPlaybackChord} Scale` : undefined}
             chordMomentNotes={chordMomentNotes}
