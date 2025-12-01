@@ -126,7 +126,19 @@ export default function FretboardComponent({
     ],
   );
 
-  const chordTones = useMemo(() => parseChordTones(currentChordName), [currentChordName]);
+  const chordTones = useMemo(() => {
+    const parsed = parseChordTones(currentChordName);
+    if (parsed) return parsed;
+
+    if (scale) {
+      const name = scale.name.toLowerCase();
+      const isMinorish = name.includes('minor') || name.includes('dorian') || name.includes('phrygian') || name.includes('blues');
+      const inferredType = isMinorish ? 'm' : '';
+      return getChordTones(scale.root, inferredType);
+    }
+
+    return null;
+  }, [currentChordName, scale]);
 
   const scaleTypeKey = useMemo(
     () => getScaleTypeKey(scale?.name),
@@ -142,12 +154,16 @@ export default function FretboardComponent({
     if (!scale) return null;
     const note = getFretNote(stringIndex, fret);
     const normalized = normalizeNoteToSharp(note);
-    if (!scale.notes.some(n => isSameNote(n, normalized))) return null;
+
+    const inScale = scale.notes.some(n => isSameNote(n, normalized));
 
     const scaleDegreeInfo = getScaleDegree(normalized, scale.root, scaleTypeKey);
     const isRoot = isSameNote(normalized, scale.root);
     const isThird = chordTones ? isSameNote(normalized, chordTones.third) : false;
     const isFifth = chordTones ? isSameNote(normalized, chordTones.fifth) : false;
+
+    // Show chord tones even if they sit outside the active scale (e.g., blues major 3rd over minor pentatonic).
+    if (!inScale && !isRoot && !isThird && !isFifth) return null;
 
     return {
       note,

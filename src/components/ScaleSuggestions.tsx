@@ -22,12 +22,14 @@ const ScaleSuggestions: React.FC<ScaleSuggestionsProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  const selectedScale = suggestions.find(s => s.name === activeScaleName) || suggestions[0];
+  const selectedScale =
+    suggestions.find(s => s.name.toLowerCase() === (activeScaleName || '').toLowerCase()) ||
+    suggestions[0];
 
   if (!selectedScale) return null;
 
   return (
-    <div className="w-full bg-white/90 backdrop-blur-md rounded-3xl p-6 shadow-2xl shadow-green-900/20 border-2 border-white">
+    <div className="w-full bg-white/90 backdrop-blur-md rounded-3xl p-6 shadow-2xl shadow-green-900/20 border-2 border-white relative z-30">
       <div className="flex flex-wrap items-center gap-4">
         {/* Mode Toggle */}
         {onScaleModeChange && (

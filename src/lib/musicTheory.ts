@@ -32,22 +32,34 @@ export function getScaleSuggestions(
       if (progressionRoot) {
         const suggestions: ScaleSuggestion[] = [];
 
-        // 1. The Mixolydian scale for the CURRENT chord is the 'perfect' choice for the "moment".
-        const chordMixolydian = Scale.get(`${chordRoot} mixolydian`);
-        if (chordMixolydian.notes.length > 0) {
-          suggestions.push({ ...chordMixolydian, quality: 'perfect' });
-        }
-
-        // 2. The root minor pentatonic is ALWAYS a 'good' choice for the overall progression.
+        // Root minor pentatonic is the classic blues choice: mark as perfect.
         const rootMinorPentatonic = Scale.get(`${progressionRoot} minor pentatonic`);
         if (rootMinorPentatonic.notes.length > 0) {
-          suggestions.push({ ...rootMinorPentatonic, quality: 'good' });
+          suggestions.push({ ...rootMinorPentatonic, quality: 'perfect' });
         }
 
-        // 3. The minor pentatonic for the CURRENT chord is a 'possible' choice.
+        // Root blues scale is also a staple: mark as perfect.
+        const rootBlues = Scale.get(`${progressionRoot} blues`);
+        if (rootBlues.notes.length > 0) {
+          suggestions.push({ ...rootBlues, quality: 'perfect' });
+        }
+
+        // Mixolydian over the current chord: strong momentary choice.
+        const chordMixolydian = Scale.get(`${chordRoot} mixolydian`);
+        if (chordMixolydian.notes.length > 0) {
+          suggestions.push({ ...chordMixolydian, quality: 'good' });
+        }
+
+        // Minor pentatonic for the current chord: also solid.
         const chordMinorPentatonic = Scale.get(`${chordRoot} minor pentatonic`);
         if (chordMinorPentatonic.notes.length > 0) {
-          suggestions.push({ ...chordMinorPentatonic, quality: 'possible' });
+          suggestions.push({ ...chordMinorPentatonic, quality: 'good' });
+        }
+
+        // Major pentatonic on the progression root for brighter blues.
+        const rootMajorPentatonic = Scale.get(`${progressionRoot} major pentatonic`);
+        if (rootMajorPentatonic.notes.length > 0) {
+          suggestions.push({ ...rootMajorPentatonic, quality: 'good' });
         }
 
         return suggestions
@@ -231,6 +243,7 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
         // Minor Pentatonic is the most common, so we list it first.
         const minorPentatonic = Scale.get(`${rootNote} minor pentatonic`);
         const bluesScale = Scale.get(`${rootNote} blues`);
+        const majorPentatonic = Scale.get(`${rootNote} major pentatonic`);
 
         if (minorPentatonic.notes.length > 0) {
           suggestions.push({
@@ -247,6 +260,15 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
             notes: bluesScale.notes,
             intervals: bluesScale.intervals,
             quality: 'perfect' // Blues scale is also a perfect fit
+          });
+        }
+
+        if (majorPentatonic.notes.length > 0) {
+          suggestions.push({
+            name: majorPentatonic.name,
+            notes: majorPentatonic.notes,
+            intervals: majorPentatonic.intervals,
+            quality: 'good'
           });
         }
       }
