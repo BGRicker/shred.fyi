@@ -28,10 +28,10 @@ export function getScaleSuggestions(
     // --- START: CONTEXT-AWARE BLUES LOGIC ---
     if (context?.progressionType === 'blues' && context.progression && context.progression.length > 0) {
       const progressionRoot = Chord.get(context.progression[0]).tonic;
-      
+
       if (progressionRoot) {
         const suggestions: ScaleSuggestion[] = [];
-        
+
         // 1. The Mixolydian scale for the CURRENT chord is the 'perfect' choice for the "moment".
         const chordMixolydian = Scale.get(`${chordRoot} mixolydian`);
         if (chordMixolydian.notes.length > 0) {
@@ -43,18 +43,18 @@ export function getScaleSuggestions(
         if (rootMinorPentatonic.notes.length > 0) {
           suggestions.push({ ...rootMinorPentatonic, quality: 'good' });
         }
-        
+
         // 3. The minor pentatonic for the CURRENT chord is a 'possible' choice.
         const chordMinorPentatonic = Scale.get(`${chordRoot} minor pentatonic`);
         if (chordMinorPentatonic.notes.length > 0) {
-            suggestions.push({ ...chordMinorPentatonic, quality: 'possible' });
+          suggestions.push({ ...chordMinorPentatonic, quality: 'possible' });
         }
-        
+
         return suggestions
           .filter((suggestion, index, arr) => arr.findIndex(s => s.name === suggestion.name) === index)
           .sort((a, b) => {
-             const qualityOrder = { perfect: 0, good: 1, possible: 2 };
-             return qualityOrder[a.quality] - qualityOrder[b.quality];
+            const qualityOrder = { perfect: 0, good: 1, possible: 2 };
+            return qualityOrder[a.quality] - qualityOrder[b.quality];
           });
       }
     }
@@ -72,7 +72,7 @@ export function getScaleSuggestions(
         { scale: 'major pentatonic', quality: 'perfect' as const },
         { scale: 'blues', quality: 'possible' as const },
       ] : []),
-      
+
       // Minor chord scales  
       ...(chord.quality === 'Minor' ? [
         { scale: 'natural minor', quality: 'perfect' as const },
@@ -96,11 +96,11 @@ export function getScaleSuggestions(
     // Generate scale suggestions
     for (const template of scaleTemplates) {
       const scale = Scale.get(`${chordRoot} ${template.scale}`);
-      
+
       if (scale.notes.length > 0) {
         // Check how well the scale fits the chord
         const compatibility = calculateScaleCompatibility(chordNotes, scale.notes);
-        
+
         suggestions.push({
           name: scale.name,
           notes: scale.notes,
@@ -112,7 +112,7 @@ export function getScaleSuggestions(
 
     // Sort by quality and remove duplicates
     return suggestions
-      .filter((suggestion, index, arr) => 
+      .filter((suggestion, index, arr) =>
         arr.findIndex(s => s.name === suggestion.name) === index
       )
       .sort((a, b) => {
@@ -147,7 +147,7 @@ export function analyzeProgression(chordSymbols: string[]): ProgressionAnalysis 
     // Analyze the progression type and find progression-wide scales
     const progressionType = detectProgressionType(chordSymbols);
     const progressionScales = getProgressionWideScales(chordSymbols, progressionType);
-    
+
     // Determine key signature
     const keySignature = determineKeySignature(chordSymbols, progressionType);
 
@@ -226,12 +226,12 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
       const rootChord = chordSymbols[0];
       const chordInfo = Chord.get(rootChord);
       const rootNote = chordInfo.tonic;
-      
+
       if (rootNote) {
         // Minor Pentatonic is the most common, so we list it first.
         const minorPentatonic = Scale.get(`${rootNote} minor pentatonic`);
         const bluesScale = Scale.get(`${rootNote} blues`);
-        
+
         if (minorPentatonic.notes.length > 0) {
           suggestions.push({
             name: minorPentatonic.name,
@@ -240,7 +240,7 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
             quality: 'perfect'
           });
         }
-        
+
         if (bluesScale.notes.length > 0) {
           suggestions.push({
             name: bluesScale.name,
@@ -256,10 +256,10 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
     if (progressionType === 'major') {
       const rootChord = chordSymbols[0];
       const rootNote = rootChord.replace('7', '').replace('m', '');
-      
+
       const majorScale = Scale.get(`${rootNote} major`);
       const majorPentatonic = Scale.get(`${rootNote} major pentatonic`);
-      
+
       if (majorScale.notes.length > 0) {
         suggestions.push({
           name: majorScale.name,
@@ -268,7 +268,7 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
           quality: 'perfect'
         });
       }
-      
+
       if (majorPentatonic.notes.length > 0) {
         suggestions.push({
           name: majorPentatonic.name,
@@ -323,7 +323,7 @@ function calculateScaleCompatibility(chordNotes: string[], scaleNotes: string[])
   const scaleNoteSet = new Set(scaleNotes);
 
   let matches = 0;
-  
+
   for (const chordNote of chordNoteSet) {
     if (scaleNoteSet.has(chordNote)) {
       matches++;
@@ -355,5 +355,82 @@ export function formatChordName(chordSymbol: string): string {
     return chord.symbol || chordSymbol;
   } catch {
     return chordSymbol;
+  }
+}
+
+/**
+ * Get comparable chords (extensions, substitutions) for a given chord
+ */
+export function getComparableChords(
+  chordSymbol: string,
+  options?: { progression?: string[] }
+): string[] {
+  try {
+    const chord = Chord.get(chordSymbol);
+    const root = chord.tonic || chordSymbol.match(/^([A-G][b#]?)/i)?.[1];
+    if (!root) return [];
+
+    const suggestions: string[] = [];
+    const add = (value: string) => {
+      if (!value) return;
+      if (value.includes('undefined')) return;
+      if (!suggestions.includes(value)) suggestions.push(value);
+    };
+
+    // Progression chords first (context-aware suggestions)
+    (options?.progression ?? []).forEach(add);
+
+    // Always include the simple 7th option for the root
+    add(`${root}7`);
+    add(`${root}`);
+
+    // 1. Extensions (7, 9, 11, 13)
+    if (chord.quality === 'Major') {
+      add(`${root}maj7`);
+      add(`${root}maj9`);
+      add(`${root}6`);
+      add(`${root}add9`);
+    } else if (chord.quality === 'Minor') {
+      add(`${root}m7`);
+      add(`${root}m9`);
+      add(`${root}m11`);
+      add(`${root}m6`);
+    } else {
+      // Assume dominant/other if not major/minor
+      add(`${root}9`);
+      add(`${root}13`);
+      add(`${root}7sus4`);
+      add(`${root}7#9`);
+    }
+
+    // 2. Relative Major/Minor
+    if (chord.quality === 'Major') {
+      const relativeMinor = Note.transpose(root, '-3m');
+      add(`${relativeMinor}m`);
+      add(`${relativeMinor}m7`);
+    } else if (chord.quality === 'Minor') {
+      const relativeMajor = Note.transpose(root, '3m');
+      add(`${relativeMajor}`);
+      add(`${relativeMajor}maj7`);
+    }
+
+    // 3. Tritone Substitution (for Dominant chords)
+    if (chord.type === 'dominant seventh' || chord.aliases.includes('7')) {
+      const tritoneRoot = Note.transpose(root, '4A'); // Augmented 4th = Tritone
+      add(`${tritoneRoot}7`);
+    }
+
+    // 4. Parallel Major/Minor
+    if (chord.quality === 'Major') {
+      add(`${root}m`);
+      add(`${root}m7`);
+    } else if (chord.quality === 'Minor') {
+      add(`${root}`);
+      add(`${root}maj7`);
+    }
+
+    return suggestions;
+  } catch {
+    return (options?.progression ?? []).filter(p => p !== chordSymbol);
   }
 }

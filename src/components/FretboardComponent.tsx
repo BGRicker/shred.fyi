@@ -1,296 +1,373 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import dynamic from 'next/dynamic';
+import React, { useMemo } from 'react';
+import { motion } from 'motion/react';
 import {
-  normalizeNoteToSharp,
-  calculateNoteAtFret,
   calculateInterval,
-  OPEN_NOTES,
+  getChordTones,
+  getFretNote,
+  getScaleDegree,
+  isSameNote,
+  normalizeNoteToSharp,
+  ScaleTypeKey,
+  STANDARD_TUNING,
 } from '@/lib/fretboardUtils';
 
-// Dynamically import Guitar to avoid SSR issues
-const Guitar = dynamic(() => import('react-guitar'), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-64 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-      <div className="text-gray-500 dark:text-gray-400">Loading fretboard...</div>
-    </div>
-  ),
-});
+type HighlightMode = 'chord' | 'progression' | 'both';
 
 interface FretboardComponentProps {
-  strings: number[];
-  className?: string;
-  highlightedNotes?: string[]; // Notes to highlight on the fretboard
-  highlightMode?: 'chord' | 'progression' | 'both';
-  rootNotes?: string[]; // Root notes to distinguish with different styling
+  strings?: number[];
+  highlightedNotes?: string[];
+  highlightMode?: HighlightMode;
+  rootNotes?: string[];
   progressionScaleName?: string;
   chordMomentScaleName?: string;
   chordMomentNotes?: string[];
+  currentChordName?: string | null;
+  className?: string;
 }
 
-const FretboardComponent: React.FC<FretboardComponentProps> = ({
-  strings,
-  className = '',
-  highlightedNotes: progressionNotes = [],
-  highlightMode = 'both',
+interface ScaleInfo {
+  name: string;
+  root: string;
+  notes: string[];
+}
+
+interface NoteInfo {
+  note: string;
+  isRoot: boolean;
+  isThird: boolean;
+  isFifth: boolean;
+  scaleDegreeLabel: string;
+}
+
+const getScaleTypeKey = (scaleName?: string): ScaleTypeKey => {
+  if (!scaleName) return 'minorPentatonic';
+  const name = scaleName.toLowerCase();
+  if (name.includes('blues')) return 'blues';
+  if (name.includes('mixolydian')) return 'mixolydian';
+  if (name.includes('dorian')) return 'dorian';
+  if (name.includes('major pentatonic')) return 'majorPentatonic';
+  if (name.includes('minor pentatonic')) return 'minorPentatonic';
+  if (name.includes('major')) return 'major';
+  if (name.includes('minor')) return 'minor';
+  return 'minorPentatonic';
+};
+
+const parseChordTones = (currentChordName?: string | null) => {
+  if (!currentChordName) return null;
+  const match = currentChordName.match(/^([A-G](?:#|b)?)(.*)$/);
+  if (!match) return null;
+  const [, root, type] = match;
+  return getChordTones(root, type.trim());
+};
+
+function buildScaleInfo({
+  highlightMode,
+  progressionScaleName,
+  chordMomentScaleName,
+  progressionNotes,
+  chordNotes,
+  rootNotes,
+}: {
+  highlightMode: HighlightMode;
+  progressionScaleName?: string;
+  chordMomentScaleName?: string;
+  progressionNotes: string[];
+  chordNotes: string[];
+  rootNotes: string[];
+}): ScaleInfo | null {
+  const activeNotes =
+    highlightMode === 'chord' && chordNotes.length > 0 ? chordNotes : progressionNotes;
+
+  if (activeNotes.length === 0 && chordNotes.length === 0) return null;
+
+  const root = normalizeNoteToSharp(
+    rootNotes[0] || activeNotes[0] || chordNotes[0] || 'A',
+  );
+
+  const name =
+    highlightMode === 'chord' && chordMomentScaleName
+      ? chordMomentScaleName
+      : progressionScaleName || 'Scale';
+
+  const notes = activeNotes.length > 0 ? activeNotes : chordNotes;
+
+  return {
+    name,
+    root,
+    notes: notes.map(normalizeNoteToSharp),
+  };
+}
+
+export default function FretboardComponent({
+  highlightedNotes = [],
+  chordMomentNotes = [],
   rootNotes = [],
   progressionScaleName,
   chordMomentScaleName,
-  chordMomentNotes = [],
-}) => {
-  const [isClient, setIsClient] = useState(false);
-  const fretboardRef = useRef<HTMLDivElement>(null);
+  highlightMode = 'both',
+  currentChordName,
+  className = '',
+}: FretboardComponentProps) {
+  const scale = useMemo(
+    () =>
+      buildScaleInfo({
+        highlightMode,
+        progressionScaleName,
+        chordMomentScaleName,
+        progressionNotes: highlightedNotes,
+        chordNotes: chordMomentNotes,
+        rootNotes,
+      }),
+    [
+      highlightMode,
+      progressionScaleName,
+      chordMomentScaleName,
+      highlightedNotes,
+      chordMomentNotes,
+      rootNotes,
+    ],
+  );
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+  const chordTones = useMemo(() => parseChordTones(currentChordName), [currentChordName]);
 
-  const normalizedProgressionNotes = useMemo(() => progressionNotes.map(normalizeNoteToSharp), [progressionNotes]);
-  const normalizedChordMomentNotes = useMemo(() => chordMomentNotes.map(normalizeNoteToSharp), [chordMomentNotes]);
-  const normalizedRootNotes = useMemo(() => rootNotes.map(normalizeNoteToSharp), [rootNotes]);
+  const scaleTypeKey = useMemo(
+    () => getScaleTypeKey(scale?.name),
+    [scale?.name],
+  );
 
-  const fretboardLayout = useMemo(() => {
-    const layout: { note: string; state: 'none' | 'progression' | 'moment' | 'root' }[][] = Array(6)
-      .fill(null)
-      .map(() => Array(13).fill({ note: '', state: 'none' }));
+  const numFrets = 16;
+  const numStrings = STANDARD_TUNING.length;
+  const fretWidth = 70;
+  const stringSpacing = 48;
 
-    const progressionNotesSet = new Set(normalizedProgressionNotes);
-    const momentNotesSet = new Set(normalizedChordMomentNotes);
-    const rootNotesSet = new Set(normalizedRootNotes);
-    
-    for (let stringIdx = 0; stringIdx < 6; stringIdx++) {
-      for (let fretIdx = 0; fretIdx <= 12; fretIdx++) {
-        const note = calculateNoteAtFret(OPEN_NOTES[stringIdx], fretIdx);
-        let state: 'none' | 'progression' | 'moment' | 'root' = 'none';
+  const getNoteInfo = (stringIndex: number, fret: number): NoteInfo | null => {
+    if (!scale) return null;
+    const note = getFretNote(stringIndex, fret);
+    const normalized = normalizeNoteToSharp(note);
+    if (!scale.notes.some(n => isSameNote(n, normalized))) return null;
 
-        const isProgression = progressionNotesSet.has(note);
-        const isMoment = momentNotesSet.has(note);
-        const isRoot = rootNotesSet.has(note);
+    const scaleDegreeInfo = getScaleDegree(normalized, scale.root, scaleTypeKey);
+    const isRoot = isSameNote(normalized, scale.root);
+    const isThird = chordTones ? isSameNote(normalized, chordTones.third) : false;
+    const isFifth = chordTones ? isSameNote(normalized, chordTones.fifth) : false;
 
-        if (highlightMode === 'both') {
-          if (isMoment) {
-            state = isRoot ? 'root' : 'moment';
-          } else if (isProgression) {
-            state = isRoot ? 'root' : 'progression';
-          }
-        } else if (highlightMode === 'progression') {
-          if (isProgression) {
-            state = isRoot ? 'root' : 'progression';
-          }
-        } else if (highlightMode === 'chord') {
-          if (isMoment) {
-            state = isRoot ? 'root' : 'moment';
-          }
-        }
-        
-        layout[stringIdx][fretIdx] = { note, state };
-      }
-    }
-    return layout;
-  }, [normalizedProgressionNotes, normalizedChordMomentNotes, normalizedRootNotes, highlightMode]);
+    return {
+      note,
+      isRoot,
+      isThird,
+      isFifth,
+      scaleDegreeLabel: scaleDegreeInfo?.degreeLabel || '',
+    };
+  };
 
-  if (!isClient) {
+  if (!scale) {
     return (
-      <div className={`fretboard-container ${className}`}>
-        <div className="w-full h-64 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-          <div className="text-gray-500 dark:text-gray-400">Loading fretboard...</div>
-        </div>
+      <div className={`w-full bg-white/80 rounded-3xl p-6 border border-amber-200 ${className}`}>
+        <p className="text-amber-800/70">No scale data yet. Record a progression to see the fretboard.</p>
       </div>
     );
   }
 
-  const hasHighlightedNotes = progressionNotes.length > 0 || chordMomentNotes.length > 0;
-  const displayStrings = hasHighlightedNotes ? [-1, -1, -1, -1, -1, -1] : strings;
-
   return (
-    <div className={`fretboard-container ${className}`}>
-      {/* Enhanced Guitar Fretboard using react-guitar with Scale Note Overlay */}
-      <div className="mb-4 relative">
-        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-          {highlightMode === 'progression' && progressionScaleName ? `Progression Scale: ${progressionScaleName}` :
-           highlightMode === 'chord' && chordMomentScaleName ? `Chord of the Moment Scale: ${chordMomentScaleName}` :
-           'Guitar Fretboard with Full Scale Notes'}
-        </h4>
-        
-        {/* React Guitar Component - Simple Full Width Approach */}
-        <div className="relative w-full" ref={fretboardRef}>
-          <style jsx>{`
-            .fretboard-wrapper {
-              max-width: 100%;
-              width: 100%;
-              overflow: hidden;
-            }
-            .fretboard-wrapper :global(.guitar) {
-              width: 100% !important;
-              max-width: 100% !important;
-              overflow: hidden !important;
-            }
-            .fretboard-wrapper :global(.frets) {
-              width: 100% !important;
-              max-width: 100% !important;
-              overflow: hidden !important;
-              display: grid !important;
-              grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr !important;
-            }
-            .fretboard-wrapper :global(.fret) {
-              width: 100% !important;
-              min-width: unset !important;
-              max-width: unset !important;
-            }
-            .fretboard-wrapper :global(.fret.nut) {
-              width: 100% !important;
-              min-width: unset !important;
-              max-width: unset !important;
-            }
-            .fretboard-wrapper.scale-mode :global(.guitar),
-            .fretboard-wrapper.scale-mode :global(.frets),
-            .fretboard-wrapper.scale-mode :global(.fret) {
-              pointer-events: none !important;
-            }
-            .fretboard-wrapper :global(.fret-hover),
-            .fretboard-wrapper :global(.fret-hover-indicator),
-            .fretboard-wrapper :global([data-hover]),
-            .fretboard-wrapper :global(.hover),
-            .fretboard-wrapper :global(.hover-indicator),
-            .fretboard-wrapper :global(.fret:hover::after),
-            .fretboard-wrapper :global(.fret:hover::before),
-            .fretboard-wrapper :global(.fret[data-hover]),
-            .fretboard-wrapper :global(.fret[data-hover]::after),
-            .fretboard-wrapper :global(.fret[data-hover]::before) {
-              display: none !important;
-              visibility: hidden !important;
-              opacity: 0 !important;
-              pointer-events: none !important;
-            }
-            .scale-overlay {
-              display: grid;
-              grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-              grid-template-rows: 3.33125em 3.33125em 3.33125em 3.33125em 3.33125em 3.33125em;
-              pointer-events: none;
-              position: absolute;
-              top: 0;
-              left: 0;
-              right: 0;
-              bottom: 0;
-              width: 100%;
-            }
-            .scale-note {
-              width: 2.5em;
-              height: 2.5em;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 1.1em;
-              font-weight: bold;
-              border-radius: 50%;
-              color: white;
-              border: 2px solid white;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-              z-index: 10;
-              transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
-            }
-            .scale-note.progression-note {
-              background: #3b82f6; /* blue-500 */
-            }
-            .scale-note.moment-note {
-              background: #22c55e; /* green-500 */
-              z-index: 11; /* Ensure moment notes are visually on top */
-            }
-            .scale-note.root-note {
-              background: #dc2626; /* red-600 */
-              border: 3px solid white;
-              box-shadow: 0 3px 6px rgba(0,0,0,0.4);
-              z-index: 12; /* Roots are the most important */
-            }
-          `}</style>
-          
-          <div className={`fretboard-wrapper ${hasHighlightedNotes ? 'scale-mode' : ''}`}>
-            <Guitar
-              key={displayStrings.join(',')}
-              strings={displayStrings}
-              center={false}
-              frets={{ from: 0, amount: 12 }}
-              className="w-full"
-            />
-            
-            {/* Scale Note Overlay */}
-            {hasHighlightedNotes && (
-              <div className="scale-overlay">
-                {fretboardLayout.flatMap((stringNotes, stringIndex) =>
-                  stringNotes.map(({ note, state }, fretIndex) => {
-                    if (state === 'none') return null;
+    <div
+      className={`w-full bg-gradient-to-br from-amber-50 via-yellow-50/80 to-amber-50 backdrop-blur-md rounded-3xl p-8 shadow-2xl shadow-amber-900/20 border-2 border-amber-200 ${className}`}
+    >
+      <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+        <div>
+          <h2 className="text-amber-900">Fretboard Visualization</h2>
+          <p className="text-sm text-amber-800/70">
+            {highlightMode === 'chord' && chordMomentScaleName
+              ? `Chord of the moment: ${chordMomentScaleName}`
+              : `Scale: ${scale.name}`}
+          </p>
+        </div>
 
-                    const isRoot = state === 'root';
-                    const isMoment = state === 'moment';
-                    
-                    let noteClass = '';
-                    let title = note;
-
-                    switch (state) {
-                      case 'progression':
-                        noteClass = 'progression-note';
-                        title = `${note} (Progression Scale)`;
-                        break;
-                      case 'moment':
-                        noteClass = 'moment-note';
-                        title = `${note} (Chord of the Moment)`;
-                        break;
-                      case 'root':
-                        noteClass = 'root-note';
-                        title = `${note} (Root Note)`;
-                        break;
-                    }
-
-                    return (
-                      <div
-                        key={`${stringIndex}-${fretIndex}`}
-                        className={`scale-note ${noteClass}`}
-                        style={{
-                          gridColumn: fretIndex === 0 ? 1 : fretIndex + 1,
-                          gridRow: stringIndex + 1,
-                          justifySelf: 'center',
-                          alignSelf: 'center',
-                        }}
-                        title={title}
-                      >
-                        {note}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
+        <div className="flex items-center gap-4 text-xs flex-wrap bg-white/70 px-4 py-2 rounded-2xl border border-amber-200/80">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-green-600 shadow-lg shadow-green-600/50 flex items-center justify-center text-[10px] text-white">
+              1
+            </div>
+            <span className="text-amber-800">Root</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-amber-500 shadow-lg shadow-amber-600/40 flex items-center justify-center text-[10px] text-white">
+              ♭3/3
+            </div>
+            <span className="text-amber-800">Chord 3rd</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-teal-500 shadow-lg shadow-teal-600/40 flex items-center justify-center text-[10px] text-white">
+              5
+            </div>
+            <span className="text-amber-800">Chord 5th</span>
+          </div>
+          <div className="h-6 w-px bg-amber-300/70" />
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-amber-200 border border-amber-400 flex items-center justify-center text-[9px] text-amber-700">
+              ●
+            </div>
+            <span className="text-amber-800/70">Other scale notes</span>
           </div>
         </div>
       </div>
 
-      {/* Scale Notes Display */}
-      {progressionNotes.length > 0 && (
-        <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-700 rounded-lg">
-          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-            {highlightMode === 'chord' ? 'Scale Notes for Current Chord' : 
-             highlightMode === 'progression' ? 'Progression Scale Notes' : 
-             'Highlighted Scale Notes'}
+      <div className="overflow-x-auto bg-gradient-to-b from-amber-900/10 to-amber-800/5 rounded-2xl p-4 border border-amber-200/50">
+        <div className="inline-block min-w-full">
+          <div className="flex mb-3 ml-16">
+            {Array.from({ length: numFrets }).map((_, fretIndex) => (
+              <div
+                key={fretIndex}
+                className="flex-shrink-0 text-center text-xs text-amber-700/60"
+                style={{ width: `${fretWidth}px` }}
+              >
+                {fretIndex === 0 ? '' : fretIndex}
+              </div>
+            ))}
+          </div>
+
+          <div className="relative">
+            <div className="absolute left-0 top-0 bottom-0 w-14 flex flex-col justify-around py-2">
+              {Array.from({ length: numStrings }).map((_, stringIndex) => (
+                <div key={stringIndex} className="text-right pr-3 text-sm text-amber-800/80">
+                  {STANDARD_TUNING[stringIndex]}
+                </div>
+              ))}
+            </div>
+
+            <div
+              className="ml-14 relative bg-gradient-to-r from-amber-200/30 to-yellow-100/30 rounded-xl p-2"
+              style={{ height: `${stringSpacing * numStrings}px` }}
+            >
+              <div className="absolute inset-0 flex">
+                {Array.from({ length: numFrets }).map((_, fretIndex) => (
+                  <div
+                    key={fretIndex}
+                    className="flex-shrink-0 relative"
+                    style={{ width: `${fretWidth}px` }}
+                  >
+                    {fretIndex > 0 && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-400/60 via-amber-500/70 to-amber-400/60 shadow-sm" />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="absolute inset-0 flex flex-col justify-around py-2">
+                {Array.from({ length: numStrings }).map((_, stringIndex) => (
+                  <div
+                    key={stringIndex}
+                    className="relative bg-gradient-to-r from-amber-700/50 via-amber-600/60 to-amber-700/50 shadow-sm"
+                    style={{ height: `${1 + stringIndex * 0.3}px` }}
+                  />
+                ))}
+              </div>
+
+              <div className="absolute inset-0 flex flex-col justify-around py-2">
+                {Array.from({ length: numStrings }).map((_, stringIndex) => (
+                  <div
+                    key={stringIndex}
+                    className="relative flex"
+                    style={{ height: `${stringSpacing}px` }}
+                  >
+                    {Array.from({ length: numFrets }).map((_, fretIndex) => {
+                      const noteInfo = getNoteInfo(stringIndex, fretIndex);
+
+                      return (
+                        <div
+                          key={fretIndex}
+                          className="flex-shrink-0 relative flex items-center justify-center"
+                          style={{ width: `${fretWidth}px` }}
+                        >
+                          {noteInfo && (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              transition={{
+                                duration: 0.2,
+                                delay: (stringIndex * numFrets + fretIndex) * 0.01,
+                              }}
+                              className="relative z-10"
+                            >
+                              {noteInfo.isRoot ? (
+                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex flex-col items-center justify-center cursor-default border-[3px] text-white shadow-xl ring-2 ring-green-400/20">
+                                  <span className="text-sm leading-none">{noteInfo.note}</span>
+                                  <span className="text-[10px] leading-none mt-0.5 opacity-95">
+                                    {noteInfo.scaleDegreeLabel}
+                                  </span>
+                                </div>
+                              ) : noteInfo.isThird || noteInfo.isFifth ? (
+                                <div
+                                  className={`w-12 h-12 rounded-full bg-gradient-to-br ${
+                                    noteInfo.isThird
+                                      ? 'from-amber-500 to-amber-600 border-amber-400 shadow-amber-600/50'
+                                      : 'from-teal-500 to-teal-600 border-teal-400 shadow-teal-600/50'
+                                   } flex flex-col items-center justify-center cursor-default border-[3px] text-white shadow-xl ring-2 ${
+                                     noteInfo.isThird ? 'ring-amber-400/20' : 'ring-teal-400/20'
+                                   }`}
+                                 >
+                                  <span className="text-sm leading-none">{noteInfo.note}</span>
+                                  <span className="text-[10px] leading-none mt-0.5 opacity-95">
+                                    {noteInfo.scaleDegreeLabel}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="w-12 h-12 rounded-full bg-amber-100 border-2 border-amber-300/60 flex flex-col items-center justify-center cursor-default text-amber-700 shadow-sm">
+                                  <span className="text-sm leading-none">{noteInfo.note}</span>
+                                  <span className="text-[10px] leading-none mt-0.5 opacity-80">
+                                    {noteInfo.scaleDegreeLabel}
+                                  </span>
+                                </div>
+                              )}
+                            </motion.div>
+                          )}
+
+                          {!noteInfo && stringIndex === 2 && [3, 5, 7, 9, 15].includes(fretIndex) && (
+                            <div className="w-2.5 h-2.5 rounded-full bg-amber-400/30 opacity-60" />
+                          )}
+                          {!noteInfo &&
+                            stringIndex === 2 &&
+                            [12].includes(fretIndex) && (
+                              <div className="w-2.5 h-2.5 rounded-full bg-amber-400/40 opacity-80" />
+                            )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {scale.notes.length > 0 && (
+        <div className="mt-4 p-4 bg-white/80 rounded-2xl border border-amber-200/80 shadow-sm">
+          <h4 className="text-sm font-semibold text-amber-900 mb-3">
+            {highlightMode === 'chord' ? 'Chord of the moment notes' : 'Scale notes'}
           </h4>
           <div className="flex flex-wrap gap-2">
-            {(highlightMode === 'chord' ? chordMomentNotes : progressionNotes).map((note, index) => {
+            {(highlightMode === 'chord' && chordMomentNotes.length > 0
+              ? chordMomentNotes
+              : scale.notes
+            ).map((note, index) => {
               const normalizedNote = normalizeNoteToSharp(note);
-              const isRootNote = normalizedRootNotes.includes(normalizedNote);
-              const rootNote = normalizedRootNotes[0]; // Use the first normalized root note
+              const isRootNote = rootNotes.map(normalizeNoteToSharp).includes(normalizedNote);
+              const rootNote = rootNotes[0] ? normalizeNoteToSharp(rootNotes[0]) : scale.root;
               const interval = calculateInterval(normalizedNote, rootNote);
               return (
                 <span
                   key={index}
-                  className={`px-2 py-1 rounded text-sm font-mono border ${
-                    isRootNote 
-                      ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 border-red-300 dark:border-red-700'
-                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600'
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border shadow-sm transition-all ${
+                    isRootNote
+                      ? 'bg-green-100 text-green-800 border-green-300 shadow-green-100'
+                      : 'bg-white text-amber-900 border-amber-200 hover:border-amber-300'
                   }`}
                   title={`${note} - ${interval} from ${rootNote}`}
                 >
-                  {note} ({interval})
+                  {note}{' '}
+                  <span className="opacity-60 text-xs ml-1">({interval})</span>
                 </span>
               );
             })}
@@ -299,6 +376,4 @@ const FretboardComponent: React.FC<FretboardComponentProps> = ({
       )}
     </div>
   );
-};
-
-export default FretboardComponent;
+}

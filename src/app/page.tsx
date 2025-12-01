@@ -1,313 +1,263 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
-import FretboardComponent from '@/components/FretboardComponent';
-import ChordSelector from '@/components/ChordSelector';
-import ChordProgression from '@/components/ChordProgression';
-import ScaleSuggestions from '@/components/ScaleSuggestions';
+import React, { useState, useEffect, useMemo } from 'react';
+import Image from 'next/image';
+import { motion } from 'motion/react';
 import RecordingLoopSystem from '@/components/RecordingLoopSystem';
-import { chordDefinitions } from '@/lib/chords';
-import { getScaleSuggestions, analyzeProgression } from '@/lib/musicTheory';
+import FretboardComponent from '@/components/FretboardComponent';
+import ScaleSuggestions from '@/components/ScaleSuggestions';
 import { useAudioRecording } from '@/hooks/useAudioRecording';
+import { getScaleSuggestions } from '@/lib/musicTheory';
+import { ScaleSuggestion } from '@/types/music';
+import { Scale } from 'tonal';
+
+// Cloud component for background animation
+const Cloud = ({ className, duration, delay, style }: { className?: string, duration: number, delay: number, style?: React.CSSProperties }) => (
+  <motion.svg
+    className={`absolute opacity-60 ${className}`}
+    initial={{ x: '-200px' }}
+    animate={{ x: 'calc(100vw + 200px)' }}
+    transition={{
+      duration: duration,
+      repeat: Infinity,
+      ease: "linear",
+      delay: delay
+    }}
+    viewBox="0 0 150 75"
+    fill="white"
+    style={style}
+  >
+    <ellipse cx="35" cy="45" rx="25" ry="20" />
+    <ellipse cx="60" cy="40" rx="30" ry="25" />
+    <ellipse cx="85" cy="42" rx="28" ry="22" />
+    <ellipse cx="110" cy="47" rx="22" ry="18" />
+  </motion.svg>
+);
 
 export default function Home() {
-  const [highlightMode, setHighlightMode] = useState<'chord' | 'progression' | 'both'>('both');
-  const [playbackChord, setPlaybackChord] = useState<string | null>(null);
-  const [scaleOverrides, setScaleOverrides] = useState<{ [key: string]: string }>({});
+  const {
+    state,
+    startRecording,
+    stopRecording,
+    clearChords,
+    updateDetectedChord
+  } = useAudioRecording();
 
-  // Audio recording hook
-  const { state: audioState, startRecording, stopRecording, clearChords, updateDetectedChord } = useAudioRecording();
+  const { isRecording, detectedChords } = state;
 
-  const activeChord = playbackChord || audioState.currentChord;
-  const activeChordData = activeChord ? chordDefinitions[activeChord] : null;
-  
-  // Analyze the entire chord progression for progression-wide scales
-  const progressionAnalysis = useMemo(() => {
-    if (audioState.detectedChords.length > 0) {
-      // Extract chord symbols from detected chords
-      const chordSymbols = audioState.detectedChords.map(event => event.chord);
-      return analyzeProgression(chordSymbols);
+  const [activeScale, setActiveScale] = useState<string>('A Minor Pentatonic');
+  const [scaleSuggestions, setScaleSuggestions] = useState<ScaleSuggestion[]>([]);
+  const [currentPlaybackChord, setCurrentPlaybackChord] = useState<string | null>(null);
+  const [scaleMode, setScaleMode] = useState<'fixed' | 'follow'>('fixed');
+  const [isLogoHovered, setIsLogoHovered] = useState(false);
+
+  // Per-chord scale overrides for Follow mode
+  const [chordScaleOverrides, setChordScaleOverrides] = useState<Map<string, string>>(new Map());
+  const [currentChordTimestamp, setCurrentChordTimestamp] = useState<number | null>(null);
+
+  // Update scale suggestions when chords change
+  useEffect(() => {
+    if (detectedChords.length > 0) {
+      // Get unique chords for context
+      const uniqueChords = Array.from(new Set(detectedChords.map(c => c.chord)));
+
+      // Use the last detected chord or the current playback chord for suggestions
+      const targetChord = currentPlaybackChord || detectedChords[detectedChords.length - 1].chord;
+
+      const suggestions = getScaleSuggestions(targetChord, {
+        progression: uniqueChords,
+        progressionType: 'blues' // Default to blues for now, could be dynamic
+      });
+
+      setScaleSuggestions(suggestions);
+
+      // Auto-select best scale if in follow mode
+      if (scaleMode === 'follow' && suggestions.length > 0) {
+        // Prefer perfect match
+        const perfectMatch = suggestions.find(s => s.quality === 'perfect');
+        if (perfectMatch && perfectMatch.name !== activeScale) {
+          setActiveScale(perfectMatch.name);
+        } else if (!perfectMatch && suggestions[0].name !== activeScale) {
+          setActiveScale(suggestions[0].name);
+        }
+      }
     }
-    return null;
-  }, [audioState.detectedChords]);
+  }, [detectedChords, currentPlaybackChord, scaleMode, activeScale]);
 
-  // Get scale suggestions for the active chord
-  const scaleSuggestions = useMemo(() => {
-    if (activeChordData?.symbol) {
-      const context = {
-        progression: audioState.detectedChords.map(event => event.chord),
-        progressionType: progressionAnalysis?.progressionType,
-      };
-      return getScaleSuggestions(activeChordData.symbol, context);
+  // Calculate notes for Fretboard
+  const progressionNotes = useMemo(() => {
+    try {
+      return Scale.get(activeScale).notes;
+    } catch (e) {
+      return [];
     }
-    return [];
-  }, [activeChordData, audioState.detectedChords, progressionAnalysis?.progressionType]);
+  }, [activeScale]);
 
-  const handleProgressionScaleOverride = (scaleName: string) => {
-    setScaleOverrides(prev => ({ ...prev, progression: scaleName }));
-  };
+  const chordMomentNotes = useMemo(() => {
+    if (!currentPlaybackChord) return [];
+    // For chord of the moment, we can use the chord notes or a scale that fits perfectly
+    const suggestions = getScaleSuggestions(currentPlaybackChord);
+    return suggestions.length > 0 ? suggestions[0].notes : [];
+  }, [currentPlaybackChord]);
 
-  const handleChordScaleOverride = (scaleName: string) => {
-    if (activeChord) {
-      setScaleOverrides(prev => ({ ...prev, [activeChord]: scaleName }));
-    }
-  };
-
-  // --- START: NEW LOGIC for extracting scale names and notes for "Both" mode ---
-  const progressionScale = useMemo(() => {
-    const overrideScaleName = scaleOverrides.progression;
-    if (overrideScaleName && progressionAnalysis?.progressionScales) {
-      const overrideScale = progressionAnalysis.progressionScales.find(s => s.name === overrideScaleName);
-      if (overrideScale) return overrideScale;
-    }
-    const perfectMatch = progressionAnalysis?.progressionScales?.find(s => s.quality === 'perfect');
-    return perfectMatch || progressionAnalysis?.progressionScales?.[0];
-  }, [progressionAnalysis, scaleOverrides.progression]);
-
-  const chordMomentScale = useMemo(() => {
-    const overrideScaleName = activeChord ? scaleOverrides[activeChord] : undefined;
-    if (overrideScaleName) {
-      const overrideScale = scaleSuggestions.find(s => s.name === overrideScaleName);
-      if (overrideScale) return overrideScale;
-    }
-    const perfectMatch = scaleSuggestions.find(s => s.quality === 'perfect');
-    return perfectMatch || scaleSuggestions[0];
-  }, [scaleSuggestions, activeChord, scaleOverrides]);
-  // --- END: NEW LOGIC ---
-
-  // Get the notes to highlight on the fretboard
-  const highlightedNotes = useMemo(() => {
-    if (highlightMode === 'chord') {
-      // Use the single best scale for the chord of the moment
-      return chordMomentScale?.notes || [];
-    }
-    if (highlightMode === 'progression') {
-      // Use the single best scale for the progression
-      return progressionScale?.notes || [];
-    }
-    if (highlightMode === 'both') {
-      // In 'both' mode, the main highlighted notes are the progression scale.
-      // The chord of the moment notes are passed in a separate prop and handled as an overlay.
-      return progressionScale?.notes || [];
-    }
-    return [];
-  }, [chordMomentScale, progressionScale, highlightMode]);
-
-  // Extract root notes from the active chord and progression
   const rootNotes = useMemo(() => {
-    const roots: string[] = [];
-    
-    // Add root note from current chord
-    if (activeChord) {
-      const rootNote = activeChord.replace(/[^A-G#b]/g, ''); // Extract just the note part
-      if (rootNote && !roots.includes(rootNote)) {
-        roots.push(rootNote);
-      }
+    try {
+      return [Scale.get(activeScale).tonic || ''];
+    } catch {
+      return [];
     }
-    
-    // Add root notes from progression if available
-    if (progressionAnalysis?.keySignature) {
-      const keyRoot = progressionAnalysis.keySignature.replace(/[^A-G#b]/g, '');
-      if (keyRoot && !roots.includes(keyRoot)) {
-        roots.push(keyRoot);
-      }
-    }
-    
-    return roots;
-  }, [activeChord, progressionAnalysis?.keySignature]);
+  }, [activeScale]);
 
-  // Debug logging
+  // Get scale for current chord (with override support)
+  const getCurrentChordScale = useMemo(() => {
+    if (!currentPlaybackChord || scaleMode !== 'follow') {
+      return activeScale;
+    }
+
+    // Find the current chord in detectedChords to get its timestamp
+    const currentChordData = detectedChords.find(c => c.chord === currentPlaybackChord);
+    if (!currentChordData) return activeScale;
+
+    // Check for override
+    const overrideKey = `${currentChordData.timestamp}-${currentPlaybackChord}`;
+    if (chordScaleOverrides.has(overrideKey)) {
+      return chordScaleOverrides.get(overrideKey)!;
+    }
+
+    // Fall back to auto-suggestion
+    const suggestions = getScaleSuggestions(currentPlaybackChord);
+    return suggestions[0]?.name || activeScale;
+  }, [currentPlaybackChord, scaleMode, activeScale, detectedChords, chordScaleOverrides]);
+
+  // Update current chord timestamp when playback chord changes
   useEffect(() => {
-    console.log('Fretboard Debug:', {
-      highlightMode,
-      activeChord,
-      scaleSuggestions: scaleSuggestions.length,
-      progressionAnalysis: progressionAnalysis ? 'exists' : 'null',
-      highlightedNotes: highlightedNotes.length,
-      rootNotes: rootNotes.length
-    });
-    
-    if (highlightedNotes.length > 0) {
-      console.log('Highlighted Notes:', highlightedNotes);
+    if (currentPlaybackChord) {
+      const chordData = detectedChords.find(c => c.chord === currentPlaybackChord);
+      if (chordData) {
+        setCurrentChordTimestamp(chordData.timestamp);
+      }
+    } else {
+      setCurrentChordTimestamp(null);
     }
-  }, [highlightMode, activeChord, scaleSuggestions, progressionAnalysis, highlightedNotes, rootNotes]);
+  }, [currentPlaybackChord, detectedChords]);
 
-  const handleStartRecording = async () => {
-    clearChords();
-    await startRecording();
-  };
-
-  const handleStopRecording = () => {
-    stopRecording();
-  };
-
-  // Auto-switch to progression view when a good progression is detected
-  useEffect(() => {
-    if (progressionAnalysis?.progressionScales?.some(s => s.quality === 'perfect')) {
-      setHighlightMode('progression');
+  // Handler for scale override
+  const handleScaleOverride = (scaleName: string) => {
+    if (currentPlaybackChord && currentChordTimestamp !== null) {
+      const overrideKey = `${currentChordTimestamp}-${currentPlaybackChord}`;
+      setChordScaleOverrides(prev => {
+        const newMap = new Map(prev);
+        newMap.set(overrideKey, scaleName);
+        return newMap;
+      });
     }
-  }, [progressionAnalysis]);
-
-  const handleUpdateChord = (timestamp: number, newChord: string) => {
-    updateDetectedChord(timestamp, newChord);
+    setActiveScale(scaleName);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-slate-800 dark:text-slate-100 mb-2">
-            Shredly
-          </h1>
-          <p className="text-slate-600 dark:text-slate-300 text-lg">
-            Guitar Practice Assistant
-          </p>
-        </header>
+    <div className="min-h-screen bg-gradient-to-b from-sky-200 via-emerald-50 to-green-100 p-8 relative overflow-hidden font-sans">
+      {/* Floating Clouds Background */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <Cloud className="top-16 w-32 h-20" duration={80} delay={0} />
+        <Cloud className="top-32 w-48 h-20 opacity-50" duration={100} delay={15} />
+        <Cloud className="top-24 w-40 h-28 opacity-65" duration={90} delay={35} />
+        <Cloud className="top-10 w-36 h-32 opacity-55" duration={95} delay={55} />
+        <Cloud className="top-40 w-44 h-16 opacity-45" duration={110} delay={25} />
+        <Cloud className="top-20 w-36 h-24 opacity-70" duration={85} delay={45} />
+      </div>
 
-        {/* Recording & Loop System */}
-        <RecordingLoopSystem
-          isRecording={audioState.isRecording}
-          detectedChords={audioState.detectedChords}
-          onStartRecording={handleStartRecording}
-          onStopRecording={handleStopRecording}
-          onClearRecording={clearChords}
-          onUpdateChord={handleUpdateChord}
-          onPlaybackChordChange={setPlaybackChord}
-        />
+      {/* Decorative background elements */}
+      <div className="absolute inset-0 opacity-30 pointer-events-none">
+        <div className="absolute top-20 left-10 w-64 h-64 bg-green-300/20 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-20 right-10 w-96 h-96 bg-emerald-300/20 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-teal-200/10 rounded-full blur-3xl"></div>
+      </div>
 
-        {/* Main Content */}
-        <main className="space-y-8">
-          {/* Mode Indicator and Current Chord */}
-          <div className="text-center">
-            <div className="flex justify-center items-center space-x-4 mb-4">
-              {audioState.isRecording && (
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm text-red-600 dark:text-red-400 font-medium">Recording</span>
-                </div>
-              )}
+      <div className="max-w-7xl mx-auto space-y-8 relative z-10">
+        {/* Shred.fyi Branding Header */}
+        <div className="text-center mb-8 relative">
+          <motion.div
+            className="inline-block bg-white/40 backdrop-blur-sm px-8 py-4 rounded-2xl border border-white/60 shadow-lg shadow-sky-900/10"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+          >
+            <div className="flex items-center justify-center gap-3 mb-1">
+              <div
+                className="relative w-[72px] h-[123px]"
+                onMouseEnter={() => setIsLogoHovered(true)}
+                onMouseLeave={() => setIsLogoHovered(false)}
+              >
+                <Image
+                  src={isLogoHovered ? '/alt-logo.png' : '/logo.png'}
+                  alt="Shred.fyi logo"
+                  width={72}
+                  height={123}
+                  className={`w-[72px] h-auto transition-all duration-200 ${isLogoHovered ? 'scale-125' : 'scale-100'
+                    }`}
+                  priority
+                />
+              </div>
+              <h1 className="text-5xl tracking-tight text-sky-700 font-light">
+                Shred<span className="text-sky-600">.fyi</span>
+              </h1>
             </div>
-            
-            {audioState.detectedChords.length > 0 && activeChordData && (
-              <>
-                <h2 className="text-2xl font-semibold text-slate-700 dark:text-slate-200 mb-2">
-                  Current Chord
-                </h2>
-                <div className="text-4xl font-bold text-blue-600 dark:text-blue-400">
-                  {activeChordData.name}
-                </div>
-              </>
-            )}
-            
-            {/* Progression Analysis Info */}
-            {progressionAnalysis && (
-              <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-700">
-                <div className="text-sm text-blue-800 dark:text-blue-200">
-                  <span className="font-semibold">Key:</span> {progressionAnalysis.keySignature} 
-                  <span className="mx-2">•</span>
-                  <span className="font-semibold">Type:</span> {progressionAnalysis.progressionType}
-                </div>
-              </div>
-            )}
-            
-            {/* Error Display */}
-            {audioState.error && (
-              <div className="mt-4 p-3 bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 rounded-lg">
-                {audioState.error}
-              </div>
-            )}
-          </div>
+            <p className="text-sky-600/70 text-sm tracking-wide uppercase">
+              Chord Detection & Scale Visualization
+            </p>
+          </motion.div>
+        </div>
 
-          {audioState.detectedChords.length > 0 && (
-            <>
-              {/* Fretboard Controls */}
-              <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200">
-                    Fretboard & Scale Notes
-                  </h3>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setHighlightMode('chord')}
-                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-                        highlightMode === 'chord'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      Chord of the Moment Scale
-                    </button>
-                    <button
-                      onClick={() => setHighlightMode('progression')}
-                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-                        highlightMode === 'progression'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      Progression Scale
-                    </button>
-                    <button
-                      onClick={() => setHighlightMode('both')}
-                      className={`px-3 py-1 text-sm rounded-lg transition-colors ${
-                        highlightMode === 'both'
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                      }`}
-                    >
-                      Both Scales
-                    </button>
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <FretboardComponent 
-                    strings={activeChordData?.fingering || [-1, -1, -1, -1, -1, -1]}
-                    highlightedNotes={highlightedNotes}
-                    highlightMode={highlightMode}
-                    rootNotes={rootNotes}
-                    progressionScaleName={progressionScale?.name}
-                    chordMomentScaleName={chordMomentScale?.name}
-                    chordMomentNotes={chordMomentScale?.notes}
-                  />
-                </div>
-              </div>
+        {/* Main Recording & Loop System (includes PlaybackControls and ChordProgression) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          <RecordingLoopSystem
+            isRecording={isRecording}
+            detectedChords={detectedChords}
+            onStartRecording={startRecording}
+            onStopRecording={stopRecording}
+            onClearRecording={clearChords}
+            onUpdateChord={updateDetectedChord}
+            onPlaybackChordChange={setCurrentPlaybackChord}
+          />
+        </motion.div>
 
-              {/* Enhanced Scale Suggestions */}
-              <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
-                <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200 mb-4">
-                  Scale Recommendations
-                </h3>
-                
-                {/* Chord-specific scales */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-3">
-                    🎸 Scales for Current Chord: {activeChordData?.name || 'Unknown'}
-                  </h4>
-                  <ScaleSuggestions 
-                    suggestions={scaleSuggestions} 
-                    activeScaleName={activeChord ? scaleOverrides[activeChord] : undefined}
-                    onScaleSelect={handleChordScaleOverride}
-                  />
-                </div>
-                
-                {/* Progression-wide scales */}
-                {progressionAnalysis && progressionAnalysis.progressionScales.length > 0 && (
-                  <div>
-                    <h4 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-3">
-                      🎵 Scales for Entire Progression (Key: {progressionAnalysis.keySignature})
-                    </h4>
-                    <ScaleSuggestions 
-                      suggestions={progressionAnalysis.progressionScales} 
-                      activeScaleName={scaleOverrides.progression}
-                      onScaleSelect={handleProgressionScaleOverride}
-                    />
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </main>
+        {/* Scale Suggestions */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <ScaleSuggestions
+            suggestions={scaleSuggestions}
+            activeScaleName={scaleMode === 'follow' ? getCurrentChordScale : activeScale}
+            onScaleSelect={handleScaleOverride}
+            currentChordName={currentPlaybackChord || (detectedChords.length > 0 ? detectedChords[detectedChords.length - 1].chord : undefined)}
+            scaleMode={scaleMode}
+            onScaleModeChange={setScaleMode}
+          />
+        </motion.div>
+
+        {/* Fretboard Visualization */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
+          <FretboardComponent
+            strings={[64, 59, 55, 50, 45, 40]}
+            highlightedNotes={scaleMode === 'follow' ? Scale.get(getCurrentChordScale).notes : progressionNotes}
+            highlightMode={scaleMode === 'follow' ? 'chord' : 'progression'}
+            rootNotes={scaleMode === 'follow' ? [Scale.get(getCurrentChordScale).tonic || ''] : rootNotes}
+            progressionScaleName={scaleMode === 'follow' ? getCurrentChordScale : activeScale}
+            chordMomentScaleName={currentPlaybackChord ? `${currentPlaybackChord} Scale` : undefined}
+            chordMomentNotes={chordMomentNotes}
+            currentChordName={currentPlaybackChord}
+          />
+        </motion.div>
       </div>
     </div>
   );
