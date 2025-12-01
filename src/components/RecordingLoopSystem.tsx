@@ -244,7 +244,13 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       const chunks: Blob[] = [];
 
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+        if (e.data.size > 0) {
+          try {
+            chunks.push(e.data);
+          } catch (err) {
+            console.error('Failed to buffer audio chunk', err);
+          }
+        }
       };
 
       mediaRecorder.onstop = async () => {

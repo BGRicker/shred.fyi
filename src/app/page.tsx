@@ -251,9 +251,27 @@ export default function Home() {
         >
           <FretboardComponent
             strings={[64, 59, 55, 50, 45, 40]}
-            highlightedNotes={scaleMode === 'follow' ? Scale.get(getCurrentChordScale).notes : progressionNotes}
+            highlightedNotes={() => {
+              if (scaleMode === 'follow') {
+                try {
+                  return Scale.get(getCurrentChordScale).notes;
+                } catch {
+                  return progressionNotes;
+                }
+              }
+              return progressionNotes;
+            }()}
             highlightMode={scaleMode === 'follow' ? 'chord' : 'progression'}
-            rootNotes={scaleMode === 'follow' ? [Scale.get(getCurrentChordScale).tonic || ''] : rootNotes}
+            rootNotes={() => {
+              if (scaleMode === 'follow') {
+                try {
+                  return [Scale.get(getCurrentChordScale).tonic || ''];
+                } catch {
+                  return rootNotes;
+                }
+              }
+              return rootNotes;
+            }()}
             progressionScaleName={scaleMode === 'follow' ? getCurrentChordScale : activeScale}
             chordMomentScaleName={currentPlaybackChord ? `${currentPlaybackChord} Scale` : undefined}
             chordMomentNotes={chordMomentNotes}

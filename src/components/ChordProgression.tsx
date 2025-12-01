@@ -42,8 +42,8 @@ function getChordColors(chordRoot: string, progressionRoot: string) {
   const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
   // Normalize roots to remove sharp/flat ambiguity if needed, but for now assume standard
-  const rootIndex = notes.indexOf(progressionRoot.replace(/[0-9augdim]/g, ''));
-  const chordIndex = notes.indexOf(chordRoot.replace(/[0-9augdim]/g, ''));
+  const rootIndex = notes.indexOf(progressionRoot.replace(/(?:aug|dim|\d)/g, ''));
+  const chordIndex = notes.indexOf(chordRoot.replace(/(?:aug|dim|\d)/g, ''));
 
   if (rootIndex === -1 || chordIndex === -1) {
     // Default to green if we can't find the notes
@@ -146,7 +146,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
 
     let current = {
       name: sortedChords[0].chord,
-      root: sortedChords[0].chord.replace(/[0-9augdim]/g, ''),
+      root: sortedChords[0].chord.replace(/(?:aug|dim|\d)/g, ''),
       time: sortedChords[0].timestamp,
       duration: 0, // Will calculate
       startBar: 1,
@@ -167,7 +167,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
 
         current = {
           name: sortedChords[i].chord,
-          root: sortedChords[i].chord.replace(/[0-9augdim]/g, ''),
+          root: sortedChords[i].chord.replace(/(?:aug|dim|\d)/g, ''),
           time: nextTime,
           duration: 0,
           startBar: merged.length + 1,
