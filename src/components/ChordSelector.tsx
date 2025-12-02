@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { Button } from '@/components/ui/button';
 import { chordDefinitions, getChordNames } from '@/lib/chords';
 
 interface ChordSelectorProps {
@@ -15,7 +16,7 @@ const ChordSelector: React.FC<ChordSelectorProps> = ({
   className = '',
 }) => {
   const chordNames = getChordNames();
-  
+
   // Group chords by category for better organization
   const majorChords = chordNames.filter(key => chordDefinitions[key].category === 'major');
   const minorChords = chordNames.filter(key => chordDefinitions[key].category === 'minor');
@@ -31,19 +32,15 @@ const ChordSelector: React.FC<ChordSelectorProps> = ({
           </h4>
           <div className="grid grid-cols-7 gap-2">
             {majorChords.map((chordKey) => (
-              <button
+              <Button
                 key={chordKey}
                 onClick={() => onChordChange(chordKey)}
-                className={`
-                  px-3 py-2 rounded-lg font-medium text-sm transition-colors
-                  ${selectedChord === chordKey
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                  }
-                `}
+                variant={selectedChord === chordKey ? 'default' : 'secondary'}
+                size="sm"
+                className={`w-full ${selectedChord === chordKey ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
               >
                 {chordKey}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -55,19 +52,15 @@ const ChordSelector: React.FC<ChordSelectorProps> = ({
           </h4>
           <div className="grid grid-cols-7 gap-2">
             {minorChords.map((chordKey) => (
-              <button
+              <Button
                 key={chordKey}
                 onClick={() => onChordChange(chordKey)}
-                className={`
-                  px-3 py-2 rounded-lg font-medium text-sm transition-colors
-                  ${selectedChord === chordKey
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                  }
-                `}
+                variant={selectedChord === chordKey ? 'default' : 'secondary'}
+                size="sm"
+                className={`w-full ${selectedChord === chordKey ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
               >
                 {chordKey}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -79,19 +72,15 @@ const ChordSelector: React.FC<ChordSelectorProps> = ({
           </h4>
           <div className="grid grid-cols-7 gap-2">
             {seventhChords.map((chordKey) => (
-              <button
+              <Button
                 key={chordKey}
                 onClick={() => onChordChange(chordKey)}
-                className={`
-                  px-3 py-2 rounded-lg font-medium text-sm transition-colors
-                  ${selectedChord === chordKey
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-                  }
-                `}
+                variant={selectedChord === chordKey ? 'default' : 'secondary'}
+                size="sm"
+                className={`w-full ${selectedChord === chordKey ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
               >
                 {chordKey}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
