@@ -162,7 +162,8 @@ export default function FretboardComponent({
     const isThird = chordTones ? isSameNote(normalized, chordTones.third) : false;
     const isFifth = chordTones ? isSameNote(normalized, chordTones.fifth) : false;
 
-    // Show chord tones even if they sit outside the active scale (e.g., blues major 3rd over minor pentatonic).
+    // Show chord tones even if they sit outside the active scale (e.g., blues major 3rd over minor pentatonic)
+    // so you always see the 3rd/5th. Non-chord tones that are also out of the scale remain hidden to reduce clutter.
     if (!inScale && !isRoot && !isThird && !isFifth) return null;
 
     return {

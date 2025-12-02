@@ -190,6 +190,28 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
     [chords]
   );
 
+  const renderSuggestionList = (mergedChord: MergedChord) => (
+    <CommandGroup heading="Suggestions">
+      {getComparableChords(mergedChord.name, { progression: progressionChords }).map((suggestion) => (
+        <CommandItem
+          key={suggestion}
+          value={suggestion}
+          onSelect={(currentValue) => {
+            handleChordChange(mergedChord, currentValue);
+          }}
+        >
+          <Check
+            className={cn(
+              "mr-2 h-4 w-4",
+              mergedChord.name === suggestion ? "opacity-100" : "opacity-0"
+            )}
+          />
+          {suggestion}
+        </CommandItem>
+      ))}
+    </CommandGroup>
+  );
+
   // Determine progression root (first chord root)
   const progressionRoot = mergedChords.length > 0 ? mergedChords[0].root : 'A';
 
@@ -376,25 +398,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
                         <CommandInput placeholder="Change chord..." />
                         <CommandList>
                           <CommandEmpty>No matching chord found.</CommandEmpty>
-                          <CommandGroup heading="Suggestions">
-                            {getComparableChords(chord.name, { progression: progressionChords }).map((suggestion) => (
-                              <CommandItem
-                                key={suggestion}
-                                value={suggestion}
-                                onSelect={(currentValue) => {
-                                  handleChordChange(chord, currentValue);
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    chord.name === suggestion ? "opacity-100" : "opacity-0"
-                                  )}
-                                />
-                                {suggestion}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
+                          {renderSuggestionList(chord)}
                         </CommandList>
                       </Command>
                     </PopoverContent>
@@ -446,28 +450,10 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
                   <PopoverContent className="p-0 w-52">
                     <Command>
                       <CommandInput placeholder="Change chord..." />
-                      <CommandList>
-                        <CommandEmpty>No matching chord found.</CommandEmpty>
-                          <CommandGroup heading="Suggestions">
-                          {getComparableChords(chord.name, { progression: progressionChords }).map((suggestion) => (
-                            <CommandItem
-                              key={suggestion}
-                              value={suggestion}
-                              onSelect={(currentValue) => {
-                                handleChordChange(chord, currentValue);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  chord.name === suggestion ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              {suggestion}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
+                        <CommandList>
+                          <CommandEmpty>No matching chord found.</CommandEmpty>
+                          {renderSuggestionList(chord)}
+                        </CommandList>
                     </Command>
                   </PopoverContent>
                 </Popover>

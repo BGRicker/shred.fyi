@@ -7,7 +7,7 @@ import RecordingLoopSystem from '@/components/RecordingLoopSystem';
 import FretboardComponent from '@/components/FretboardComponent';
 import ScaleSuggestions from '@/components/ScaleSuggestions';
 import { useAudioRecording } from '@/hooks/useAudioRecording';
-import { getScaleSuggestions } from '@/lib/musicTheory';
+import { analyzeProgression, getScaleSuggestions } from '@/lib/musicTheory';
 import { ScaleSuggestion } from '@/types/music';
 import { Scale } from 'tonal';
 
@@ -58,15 +58,16 @@ export default function Home() {
   // Update scale suggestions when chords change
   useEffect(() => {
     if (detectedChords.length > 0) {
-      // Get unique chords for context
-      const uniqueChords = Array.from(new Set(detectedChords.map(c => c.chord)));
+      const orderedChords = detectedChords.map(c => c.chord);
+      const progressionMeta = analyzeProgression(orderedChords);
 
       // Use the last detected chord or the current playback chord for suggestions
       const targetChord = currentPlaybackChord || detectedChords[detectedChords.length - 1].chord;
 
       const suggestions = getScaleSuggestions(targetChord, {
-        progression: uniqueChords,
-        progressionType: 'blues' // Default to blues for now, could be dynamic
+        progression: orderedChords,
+        progressionType: progressionMeta.progressionType,
+        tonic: progressionMeta.keySignature || undefined
       });
 
       setScaleSuggestions(suggestions);

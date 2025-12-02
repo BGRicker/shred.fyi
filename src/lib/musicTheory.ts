@@ -14,7 +14,7 @@ export interface ProgressionAnalysis {
  */
 export function getScaleSuggestions(
   chordSymbol: string,
-  context?: { progression?: string[], progressionType?: 'blues' | 'major' | 'minor' | 'other' }
+  context?: { progression?: string[], progressionType?: 'blues' | 'major' | 'minor' | 'other'; tonic?: string }
 ): ScaleSuggestion[] {
   try {
     const chord = Chord.get(chordSymbol);
@@ -27,7 +27,7 @@ export function getScaleSuggestions(
 
     // --- START: CONTEXT-AWARE BLUES LOGIC ---
     if (context?.progressionType === 'blues' && context.progression && context.progression.length > 0) {
-      const progressionRoot = Chord.get(context.progression[0]).tonic;
+      const progressionRoot = context.tonic || Chord.get(context.progression[0]).tonic;
 
       if (progressionRoot) {
         const suggestions: ScaleSuggestion[] = [];
@@ -154,14 +154,19 @@ export function analyzeProgression(chordSymbols: string[]): ProgressionAnalysis 
   try {
     // Get scales for the current chord
     const currentChord = chordSymbols[chordSymbols.length - 1];
-    const chordScales = getScaleSuggestions(currentChord);
+    const progressionMeta = detectProgressionType(chordSymbols);
+    const chordScales = getScaleSuggestions(currentChord, {
+      progression: chordSymbols,
+      progressionType: progressionMeta.progressionType,
+      tonic: progressionMeta.tonic || undefined
+    });
 
     // Analyze the progression type and find progression-wide scales
-    const progressionType = detectProgressionType(chordSymbols);
-    const progressionScales = getProgressionWideScales(chordSymbols, progressionType);
+    const progressionType = progressionMeta.progressionType;
+    const progressionScales = getProgressionWideScales(chordSymbols, progressionType, progressionMeta.tonic);
 
     // Determine key signature
-    const keySignature = determineKeySignature(chordSymbols, progressionType);
+    const keySignature = progressionMeta.tonic || '';
 
     return {
       chordScales,
@@ -181,63 +186,50 @@ export function analyzeProgression(chordSymbols: string[]): ProgressionAnalysis 
 }
 
 /**
- * Detect the type of chord progression
+ * Detect the type of chord progression and tonic (ordered, no dedupe)
  */
-function detectProgressionType(chordSymbols: string[]): 'blues' | 'major' | 'minor' | 'other' {
-  if (chordSymbols.length < 2) return 'other';
+function detectProgressionType(chordSymbols: string[]): { progressionType: 'blues' | 'major' | 'minor' | 'other'; tonic: string | null } {
+  if (chordSymbols.length === 0) return { progressionType: 'other', tonic: null };
 
-  // Use Tonal.js to robustly get the tonic of each chord.
-  const rootNotes = [...new Set(chordSymbols.map(s => Chord.get(s).tonic).filter(Boolean))] as string[];
+  const roots = chordSymbols
+    .map(symbol => Chord.get(symbol).tonic)
+    .filter(Boolean) as string[];
 
-  // Check for common blues progression root patterns (I-IV-V)
-  const bluesRoots = [
-    ['A', 'D', 'E'], ['C', 'F', 'G'], ['G', 'C', 'D'],
-    ['E', 'A', 'B'], ['B', 'E', 'F#'], ['D', 'G', 'A'],
-    ['F', 'Bb', 'C']
-  ];
+  const firstRoot = roots[0] || null;
+  const fourth = firstRoot ? Note.transpose(firstRoot, '4P') : null;
+  const fifth = firstRoot ? Note.transpose(firstRoot, '5P') : null;
 
-  for (const pattern of bluesRoots) {
-    // Check if all the progression's root notes are a subset of this blues pattern.
-    if (rootNotes.every(r => pattern.includes(r))) {
-      // Check if at least two of the I, IV, V chords are present.
-      if (rootNotes.length >= 2) {
-        return 'blues';
-      }
-    }
+  const hasIV = fourth ? roots.includes(fourth) : false;
+  const hasV = fifth ? roots.includes(fifth) : false;
+  const looksBlues = Boolean(firstRoot && hasIV && hasV);
+
+  if (looksBlues) {
+    return { progressionType: 'blues', tonic: firstRoot };
   }
 
-  // Check for major key progression (I-IV-V-vi)
-  const majorPatterns = [
-    ['C', 'F', 'G', 'Am'],
-    ['G', 'C', 'D', 'Em'],
-    ['D', 'G', 'A', 'Bm']
-  ];
-
-  for (const pattern of majorPatterns) {
-    if (rootNotes.some(note => pattern.includes(note))) {
-      const majorChordCount = rootNotes.filter(note => pattern.includes(note)).length;
-      if (majorChordCount >= 3) {
-        return 'major';
-      }
-    }
+  // Infer from first chord quality
+  const firstChord = Chord.get(chordSymbols[0]);
+  if (firstChord.quality === 'Minor') {
+    return { progressionType: 'minor', tonic: firstRoot };
+  }
+  if (firstChord.quality === 'Major' || firstChord.type === 'major seventh') {
+    return { progressionType: 'major', tonic: firstRoot };
   }
 
-  return 'other';
+  return { progressionType: 'other', tonic: firstRoot };
 }
 
 /**
  * Get scales that work over the entire progression
  */
-function getProgressionWideScales(chordSymbols: string[], progressionType: 'blues' | 'major' | 'minor' | 'other'): ScaleSuggestion[] {
+function getProgressionWideScales(chordSymbols: string[], progressionType: 'blues' | 'major' | 'minor' | 'other', tonicOverride?: string | null): ScaleSuggestion[] {
   const suggestions: ScaleSuggestion[] = [];
 
   try {
     // For blues progressions, recommend blues scales and pentatonic scales
     if (progressionType === 'blues') {
       // Find the root chord (usually the first chord)
-      const rootChord = chordSymbols[0];
-      const chordInfo = Chord.get(rootChord);
-      const rootNote = chordInfo.tonic;
+      const rootNote = tonicOverride || Chord.get(chordSymbols[0]).tonic;
 
       if (rootNote) {
         // Minor Pentatonic is the most common, so we list it first.
@@ -276,8 +268,7 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
 
     // For major progressions, recommend major scales and pentatonic
     if (progressionType === 'major') {
-      const rootChord = chordSymbols[0];
-      const rootNote = rootChord.replace('7', '').replace('m', '');
+      const rootNote = (tonicOverride || chordSymbols[0]).replace('7', '').replace('m', '');
 
       const majorScale = Scale.get(`${rootNote} major`);
       const majorPentatonic = Scale.get(`${rootNote} major pentatonic`);
@@ -311,30 +302,6 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
 /**
  * Determine the key signature for a progression
  */
-function determineKeySignature(chordSymbols: string[], progressionType: 'blues' | 'major' | 'minor' | 'other'): string {
-  if (chordSymbols.length === 0) return '';
-
-  try {
-    // For blues, the first chord is usually the key
-    if (progressionType === 'blues') {
-      const rootChord = chordSymbols[0];
-      return rootChord.replace('7', '').replace('m', '');
-    }
-
-    // For major progressions, the first chord is usually the key
-    if (progressionType === 'major') {
-      const rootChord = chordSymbols[0];
-      return rootChord.replace('7', '').replace('m', '');
-    }
-
-    // Fallback: use the first chord
-    const firstChord = chordSymbols[0];
-    return firstChord.replace('7', '').replace('m', '');
-  } catch {
-    return '';
-  }
-}
-
 /**
  * Calculate how well a scale fits with a chord (0-1 score)
  */
@@ -426,27 +393,27 @@ export function getComparableChords(
     }
 
     // 2. Relative Major/Minor
-  if (chord.quality === 'Major') {
-    const relativeMinor = Note.transpose(root, '-3m');
-    if (relativeMinor) {
-      add(`${relativeMinor}m`);
-      add(`${relativeMinor}m7`);
+    if (chord.quality === 'Major') {
+      const relativeMinor = Note.transpose(root, '-3m');
+      if (relativeMinor) {
+        add(`${relativeMinor}m`);
+        add(`${relativeMinor}m7`);
+      }
+    } else if (chord.quality === 'Minor') {
+      const relativeMajor = Note.transpose(root, '3m');
+      if (relativeMajor) {
+        add(`${relativeMajor}`);
+        add(`${relativeMajor}maj7`);
+      }
     }
-  } else if (chord.quality === 'Minor') {
-    const relativeMajor = Note.transpose(root, '3m');
-    if (relativeMajor) {
-      add(`${relativeMajor}`);
-      add(`${relativeMajor}maj7`);
-    }
-  }
 
-  // 3. Tritone Substitution (for Dominant chords)
-  if (chord.type === 'dominant seventh' || chord.aliases.includes('7')) {
-    const tritoneRoot = Note.transpose(root, '4A'); // Augmented 4th = Tritone
-    if (tritoneRoot) {
-      add(`${tritoneRoot}7`);
+    // 3. Tritone Substitution (for Dominant chords)
+    if (chord.type === 'dominant seventh' || chord.aliases.includes('7')) {
+      const tritoneRoot = Note.transpose(root, '4A'); // Augmented 4th = Tritone
+      if (tritoneRoot) {
+        add(`${tritoneRoot}7`);
+      }
     }
-  }
 
     // 4. Parallel Major/Minor
     if (chord.quality === 'Major') {
