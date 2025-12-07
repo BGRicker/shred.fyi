@@ -26,8 +26,8 @@ export function PlaybackControls({
                 onClick={onRecord}
                 disabled={isPlaying}
                 className={`p-5 rounded-full transition-all shadow-lg ${isRecording
-                        ? 'bg-red-600 hover:bg-red-700 shadow-red-500/50 animate-pulse'
-                        : 'bg-red-500 hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-red-500/30'
+                    ? 'bg-red-600 hover:bg-red-700 shadow-red-500/50 animate-pulse'
+                    : 'bg-red-500 hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed shadow-red-500/30'
                     }`}
                 title={isRecording ? 'Stop Recording' : 'Start Recording'}
             >
@@ -39,7 +39,7 @@ export function PlaybackControls({
             </button>
 
             <button
-                onClick={isPlaying ? onStop : onPlay}
+                onClick={onPlay}
                 disabled={!hasRecording || isRecording}
                 className="p-6 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-2xl shadow-green-500/40"
                 title={isPlaying ? 'Stop' : 'Play'}

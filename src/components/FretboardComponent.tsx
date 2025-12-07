@@ -150,6 +150,15 @@ export default function FretboardComponent({
   const fretWidth = 70;
   const stringSpacing = 48;
 
+  const [hasInitialLoad, setHasInitialLoad] = React.useState(false);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setHasInitialLoad(true);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const getNoteInfo = (stringIndex: number, fret: number): NoteInfo | null => {
     if (!scale) return null;
     const note = getFretNote(stringIndex, fret);
@@ -162,9 +171,10 @@ export default function FretboardComponent({
     const isThird = chordTones ? isSameNote(normalized, chordTones.third) : false;
     const isFifth = chordTones ? isSameNote(normalized, chordTones.fifth) : false;
 
-    // Show chord tones even if they sit outside the active scale (e.g., blues major 3rd over minor pentatonic)
-    // so you always see the 3rd/5th. Non-chord tones that are also out of the scale remain hidden to reduce clutter.
-    if (!inScale && !isRoot && !isThird && !isFifth) return null;
+    // STRICT MODE: Only show notes in the scale.
+    // We do NOT show out-of-scale chord tones (like a Major 3rd over a Minor Pentatonic).
+    // The visualization must strictly match the named scale.
+    if (!inScale) return null;
 
     return {
       note,
@@ -228,7 +238,7 @@ export default function FretboardComponent({
 
       <div className="overflow-x-auto bg-gradient-to-b from-amber-900/10 to-amber-800/5 rounded-2xl p-4 border border-amber-200/50">
         <div className="inline-block min-w-full">
-          <div className="flex mb-3 ml-16">
+          <div className="flex mb-3 ml-8">
             {Array.from({ length: numFrets }).map((_, fretIndex) => (
               <div
                 key={fretIndex}
@@ -241,16 +251,20 @@ export default function FretboardComponent({
           </div>
 
           <div className="relative">
-            <div className="absolute left-0 top-0 bottom-0 w-14 flex flex-col justify-around py-2">
-              {Array.from({ length: numStrings }).map((_, stringIndex) => (
-                <div key={stringIndex} className="text-right pr-3 text-sm text-amber-800/80">
-                  {STANDARD_TUNING[stringIndex]}
-                </div>
-              ))}
+            <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col justify-around py-2">
+              {Array.from({ length: numStrings }).map((_, i) => {
+                // REVERSED: Visual Row 0 -> Index 5 (High E)
+                const stringIndex = numStrings - 1 - i;
+                return (
+                  <div key={stringIndex} className="text-right pr-2 text-sm text-amber-800/80">
+                    {STANDARD_TUNING[stringIndex]}
+                  </div>
+                );
+              })}
             </div>
 
             <div
-              className="ml-14 relative bg-gradient-to-r from-amber-200/30 to-yellow-100/30 rounded-xl p-2"
+              className="ml-8 relative bg-gradient-to-r from-amber-200/30 to-yellow-100/30 rounded-xl p-2"
               style={{ height: `${stringSpacing * numStrings}px` }}
             >
               <div className="absolute inset-0 flex">
@@ -268,88 +282,94 @@ export default function FretboardComponent({
               </div>
 
               <div className="absolute inset-0 flex flex-col justify-around py-2">
-                {Array.from({ length: numStrings }).map((_, stringIndex) => (
-                  <div
-                    key={stringIndex}
-                    className="relative bg-gradient-to-r from-amber-700/50 via-amber-600/60 to-amber-700/50 shadow-sm"
-                    style={{ height: `${1 + stringIndex * 0.3}px` }}
-                  />
-                ))}
+                {Array.from({ length: numStrings }).map((_, i) => {
+                  const stringIndex = numStrings - 1 - i;
+                  return (
+                    <div
+                      key={stringIndex}
+                      className="relative bg-gradient-to-r from-amber-700/50 via-amber-600/60 to-amber-700/50 shadow-sm"
+                      style={{ height: `${1 + i * 0.3}px` }}
+                    />
+                  );
+                })}
               </div>
 
               <div className="absolute inset-0 flex flex-col justify-around py-2">
-                {Array.from({ length: numStrings }).map((_, stringIndex) => (
-                  <div
-                    key={stringIndex}
-                    className="relative flex"
-                    style={{ height: `${stringSpacing}px` }}
-                  >
-                    {Array.from({ length: numFrets }).map((_, fretIndex) => {
-                      const noteInfo = getNoteInfo(stringIndex, fretIndex);
+                {Array.from({ length: numStrings }).map((_, i) => {
+                  // REVERSED: Visual Row 0 -> Index 5 (High E)
+                  const stringIndex = numStrings - 1 - i;
 
-                      return (
-                        <div
-                          key={fretIndex}
-                          className="flex-shrink-0 relative flex items-center justify-center"
-                          style={{ width: `${fretWidth}px` }}
-                        >
-                          {noteInfo && (
-                            <motion.div
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              transition={{
-                                duration: 0.2,
-                                delay: (stringIndex * numFrets + fretIndex) * 0.01,
-                              }}
-                              className="relative z-10"
-                            >
-                              {noteInfo.isRoot ? (
-                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex flex-col items-center justify-center cursor-default border-[3px] text-white shadow-xl ring-2 ring-green-400/20">
-                                  <span className="text-sm leading-none">{noteInfo.note}</span>
-                                  <span className="text-[10px] leading-none mt-0.5 opacity-95">
-                                    {noteInfo.scaleDegreeLabel}
-                                  </span>
-                                </div>
-                              ) : noteInfo.isThird || noteInfo.isFifth ? (
-                                <div
-                                  className={`w-12 h-12 rounded-full bg-gradient-to-br ${
-                                    noteInfo.isThird
+                  return (
+                    <div
+                      key={stringIndex}
+                      className="relative flex"
+                      style={{ height: `${stringSpacing}px` }}
+                    >
+                      {Array.from({ length: numFrets }).map((_, fretIndex) => {
+                        const noteInfo = getNoteInfo(stringIndex, fretIndex);
+
+                        return (
+                          <div
+                            key={fretIndex}
+                            className="flex-shrink-0 relative flex items-center justify-center"
+                            style={{ width: `${fretWidth}px` }}
+                          >
+                            {noteInfo && (
+                              <motion.div
+                                initial={{ scale: hasInitialLoad ? 1 : 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{
+                                  duration: hasInitialLoad ? 0 : 0.2,
+                                  delay: hasInitialLoad ? 0 : (i * numFrets + fretIndex) * 0.01,
+                                }}
+                                className="relative z-10"
+                              >
+                                {noteInfo.isRoot ? (
+                                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex flex-col items-center justify-center cursor-default border-[3px] text-white shadow-xl ring-2 ring-green-400/20">
+                                    <span className="text-sm leading-none">{noteInfo.note}</span>
+                                    <span className="text-[10px] leading-none mt-0.5 opacity-95">
+                                      {noteInfo.scaleDegreeLabel}
+                                    </span>
+                                  </div>
+                                ) : noteInfo.isThird || noteInfo.isFifth ? (
+                                  <div
+                                    className={`w-12 h-12 rounded-full bg-gradient-to-br ${noteInfo.isThird
                                       ? 'from-amber-500 to-amber-600 border-amber-400 shadow-amber-600/50'
                                       : 'from-teal-500 to-teal-600 border-teal-400 shadow-teal-600/50'
-                                   } flex flex-col items-center justify-center cursor-default border-[3px] text-white shadow-xl ring-2 ${
-                                     noteInfo.isThird ? 'ring-amber-400/20' : 'ring-teal-400/20'
-                                   }`}
-                                 >
-                                  <span className="text-sm leading-none">{noteInfo.note}</span>
-                                  <span className="text-[10px] leading-none mt-0.5 opacity-95">
-                                    {noteInfo.scaleDegreeLabel}
-                                  </span>
-                                </div>
-                              ) : (
-                                <div className="w-12 h-12 rounded-full bg-amber-100 border-2 border-amber-300/60 flex flex-col items-center justify-center cursor-default text-amber-700 shadow-sm">
-                                  <span className="text-sm leading-none">{noteInfo.note}</span>
-                                  <span className="text-[10px] leading-none mt-0.5 opacity-80">
-                                    {noteInfo.scaleDegreeLabel}
-                                  </span>
-                                </div>
-                              )}
-                            </motion.div>
-                          )}
-
-                          {!noteInfo && stringIndex === 2 && [3, 5, 7, 9, 15].includes(fretIndex) && fretIndex < numFrets && (
-                            <div className="w-2.5 h-2.5 rounded-full bg-amber-400/30 opacity-60" />
-                          )}
-                          {!noteInfo &&
-                            stringIndex === 2 &&
-                            [12].includes(fretIndex) &&
-                            fretIndex < numFrets && (
-                              <div className="w-2.5 h-2.5 rounded-full bg-amber-400/40 opacity-80" />
+                                      } flex flex-col items-center justify-center cursor-default border-[3px] text-white shadow-xl ring-2 ${noteInfo.isThird ? 'ring-amber-400/20' : 'ring-teal-400/20'
+                                      }`}
+                                  >
+                                    <span className="text-sm leading-none">{noteInfo.note}</span>
+                                    <span className="text-[10px] leading-none mt-0.5 opacity-95">
+                                      {noteInfo.scaleDegreeLabel}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="w-12 h-12 rounded-full bg-amber-100 border-2 border-amber-300/60 flex flex-col items-center justify-center cursor-default text-amber-700 shadow-sm">
+                                    <span className="text-sm leading-none">{noteInfo.note}</span>
+                                    <span className="text-[10px] leading-none mt-0.5 opacity-80">
+                                      {noteInfo.scaleDegreeLabel}
+                                    </span>
+                                  </div>
+                                )}
+                              </motion.div>
                             )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
+
+                            {!noteInfo && stringIndex === 2 && [3, 5, 7, 9, 15].includes(fretIndex) && fretIndex < numFrets && (
+                              <div className="w-2.5 h-2.5 rounded-full bg-amber-400/30 opacity-60" />
+                            )}
+                            {!noteInfo &&
+                              stringIndex === 2 &&
+                              [12].includes(fretIndex) &&
+                              fretIndex < numFrets && (
+                                <div className="w-2.5 h-2.5 rounded-full bg-amber-400/40 opacity-80" />
+                              )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -373,11 +393,10 @@ export default function FretboardComponent({
               return (
                 <span
                   key={index}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border shadow-sm transition-all ${
-                    isRootNote
-                      ? 'bg-green-100 text-green-800 border-green-300 shadow-green-100'
-                      : 'bg-white text-amber-900 border-amber-200 hover:border-amber-300'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border shadow-sm transition-all ${isRootNote
+                    ? 'bg-green-100 text-green-800 border-green-300 shadow-green-100'
+                    : 'bg-white text-amber-900 border-amber-200 hover:border-amber-300'
+                    }`}
                   title={`${note} - ${interval} from ${rootNote}`}
                 >
                   {note}{' '}

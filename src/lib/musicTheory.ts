@@ -99,8 +99,8 @@ export function getScaleSuggestions(
       ...(chord.type === 'dominant seventh' ? [
         { scale: 'mixolydian', quality: 'perfect' as const },
         { scale: 'blues', quality: 'perfect' as const },
-        { scale: 'minor pentatonic', quality: 'good' as const },
         { scale: 'major pentatonic', quality: 'good' as const },
+        { scale: 'minor pentatonic', quality: 'good' as const },
         { scale: 'bebop dominant', quality: 'good' as const },
       ] : []),
     ];
@@ -117,7 +117,7 @@ export function getScaleSuggestions(
           name: scale.name,
           notes: scale.notes,
           intervals: scale.intervals,
-          quality: compatibility >= 0.8 ? template.quality : 'possible'
+          quality: compatibility >= 0.7 ? template.quality : 'possible'
         });
       }
     }

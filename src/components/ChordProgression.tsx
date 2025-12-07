@@ -185,6 +185,15 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
     return merged;
   }, [chords, totalDuration]);
 
+  const effectiveDuration = useMemo(() => {
+    if (totalDuration > 0) return totalDuration;
+    if (mergedChords.length > 0) {
+      const last = mergedChords[mergedChords.length - 1];
+      return Math.max(0.1, last.time + last.duration);
+    }
+    return 0;
+  }, [mergedChords, totalDuration]);
+
   const progressionChords = useMemo(
     () => Array.from(new Set(chords.map((c) => c.chord))),
     [chords]
@@ -311,7 +320,7 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
           <motion.div
             className="absolute top-0 bottom-0 w-1 bg-green-600 z-20 shadow-lg shadow-green-600/50"
             style={{
-              left: `${(currentTime / totalDuration) * 100}%`
+              left: `${effectiveDuration > 0 ? (currentTime / effectiveDuration) * 100 : 0}%`
             }}
             initial={{ opacity: 0 }}
             animate={{ opacity: isPlaying ? 1 : 0.5 }}
@@ -355,8 +364,8 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
             </div>
           ) : (
             mergedChords.map((chord, index) => {
-              const startPercent = (chord.time / totalDuration) * 100;
-              const widthPercent = (chord.duration / totalDuration) * 100;
+              const startPercent = effectiveDuration > 0 ? (chord.time / effectiveDuration) * 100 : 0;
+              const widthPercent = effectiveDuration > 0 ? (chord.duration / effectiveDuration) * 100 : 0;
               const isCurrent = isPlaying && currentTime >= chord.time && currentTime < chord.time + chord.duration;
 
               const colors = getChordColors(chord.root, progressionRoot);

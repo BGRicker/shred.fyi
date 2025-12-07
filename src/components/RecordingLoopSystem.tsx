@@ -355,7 +355,6 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
         pauseTimeRef.current = elapsed % duration;
       }
       setIsPlaying(false);
-      onPlaybackChordChange(null);
     } else {
       // Play
       if (audioContextRef.current?.state === 'suspended') {
@@ -463,8 +462,16 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     return () => cancelAnimationFrame(animationFrame);
   }, [isPlaying, loopEnd, loopStart, adjustedChords, onPlaybackChordChange]);
 
-  // Calculate total duration in seconds
-  const totalDuration = loopEnd > 0 ? loopEnd / 1000 : 0;
+  // Calculate total duration in seconds (fallback to detected chord span while recording)
+  const totalDuration = useMemo(() => {
+    if (loopEnd > 0) return loopEnd / 1000;
+    if (detectedChords.length > 1) {
+      const start = detectedChords[0].timestamp;
+      const end = detectedChords[detectedChords.length - 1].timestamp;
+      return Math.max(0, (end - start) / 1000 + 2); // give a little tail
+    }
+    return 0;
+  }, [loopEnd, detectedChords]);
 
   // Normalize chords for display (relative to start time)
   const displayChords = useMemo(() => {

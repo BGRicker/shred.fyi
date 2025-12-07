@@ -83,27 +83,12 @@ export default function Home() {
         }
       }
     }
-  }, [detectedChords, currentPlaybackChord, scaleMode, activeScale]);
+  }, [detectedChords, currentPlaybackChord, scaleMode]); // Removed activeScale to prevent loop
 
   // Calculate notes for Fretboard
   const progressionNotes = useMemo(() => {
     try {
       return Scale.get(activeScale).notes;
-    } catch {
-      return [];
-    }
-  }, [activeScale]);
-
-  const chordMomentNotes = useMemo(() => {
-    if (!currentPlaybackChord) return [];
-    // For chord of the moment, we can use the chord notes or a scale that fits perfectly
-    const suggestions = getScaleSuggestions(currentPlaybackChord);
-    return suggestions.length > 0 ? suggestions[0].notes : [];
-  }, [currentPlaybackChord]);
-
-  const rootNotes = useMemo(() => {
-    try {
-      return [Scale.get(activeScale).tonic || ''];
     } catch {
       return [];
     }
@@ -127,8 +112,74 @@ export default function Home() {
 
     // Fall back to auto-suggestion
     const suggestions = getScaleSuggestions(currentPlaybackChord);
+
+    // Prefer Pentatonic if active scale is Pentatonic
+    const activeLower = activeScale.toLowerCase();
+    if (activeLower.includes('pentatonic')) {
+      const isMinor = activeLower.includes('minor');
+      const isMajor = activeLower.includes('major');
+
+      // 1. Try to find an exact Pentatonic match of the same quality
+      const pentatonicMatch = suggestions.find(s => {
+        const nameLower = s.name.toLowerCase();
+        if (!nameLower.includes('pentatonic')) return false;
+        if (isMinor && nameLower.includes('minor')) return true;
+        if (isMajor && nameLower.includes('major')) return true;
+        return !isMinor && !isMajor;
+      });
+
+      if (pentatonicMatch) return pentatonicMatch.name;
+
+      // 2. Fallback: If we want Major Pentatonic but can't find it, look for other MAJOR scales (Mixolydian, Major, Lydian)
+      //    This prevents falling back to Minor Pentatonic/Blues for dominant chords if the user wants a Major sound.
+      if (isMajor) {
+        const majorFallback = suggestions.find(s => {
+          const nameLower = s.name.toLowerCase();
+          return nameLower.includes('mixolydian') || nameLower.includes('major') || nameLower.includes('lydian');
+        });
+        if (majorFallback) return majorFallback.name;
+      }
+
+      // 3. Fallback: If we want Minor Pentatonic but can't find it, look for other MINOR scales
+      if (isMinor) {
+        const minorFallback = suggestions.find(s => {
+          const nameLower = s.name.toLowerCase();
+          return nameLower.includes('dorian') || nameLower.includes('phrygian') || nameLower.includes('natural minor') || nameLower.includes('blues');
+        });
+        if (minorFallback) return minorFallback.name;
+      }
+    }
+
     return suggestions[0]?.name || activeScale;
   }, [currentPlaybackChord, scaleMode, activeScale, detectedChords, chordScaleOverrides]);
+
+  const chordMomentNotes = useMemo(() => {
+    if (!currentPlaybackChord) return [];
+
+    // In Follow Mode, we want the notes of the currently selected scale (which might be an override or auto-selected)
+    // getCurrentChordScale handles both overrides and auto-selection logic.
+    if (scaleMode === 'follow') {
+      try {
+        return Scale.get(getCurrentChordScale).notes;
+      } catch (e) {
+        console.error('Failed to get notes for scale:', getCurrentChordScale, e);
+        return [];
+      }
+    }
+
+    // In Fixed Mode, or fallback, we might want suggestions, but Fretboard typically focuses on 'progressionNotes'.
+    // However, if we want to show 'chordMomentNotes' even in Fixed mode (as a secondary highlight), we can default to the best fit.
+    const suggestions = getScaleSuggestions(currentPlaybackChord);
+    return suggestions.length > 0 ? suggestions[0].notes : [];
+  }, [currentPlaybackChord, scaleMode, getCurrentChordScale]);
+
+  const rootNotes = useMemo(() => {
+    try {
+      return [Scale.get(activeScale).tonic || ''];
+    } catch {
+      return [];
+    }
+  }, [activeScale]);
 
   const safeHighlightedNotes = useMemo(() => {
     if (scaleMode === 'follow') {
