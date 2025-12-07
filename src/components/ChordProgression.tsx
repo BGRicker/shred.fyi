@@ -15,7 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { getComparableChords } from '@/lib/musicTheory';
+import { getComparableChords, analyzeProgression, getRomanNumeral } from '@/lib/musicTheory';
 
 interface ChordProgressionProps {
   chords: Array<{ chord: string; timestamp: number }>;
@@ -23,9 +23,12 @@ interface ChordProgressionProps {
   currentTime?: number;
   totalDuration?: number;
   isPlaying?: boolean;
+  isRecording?: boolean;
   onChordUpdate?: (timestamp: number, newChord: string) => void;
   onTimingAdjust?: (chordIndex: number, newBoundaryTime: number) => void;
 }
+
+// ... props interface ...
 
 interface MergedChord {
   name: string;
@@ -121,9 +124,11 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
   currentTime = 0,
   totalDuration = 0,
   isPlaying = false,
+  isRecording = false,
   onChordUpdate,
   onTimingAdjust
 }) => {
+
   // Drag state for boundary adjustment
   const [draggingBoundary, setDraggingBoundary] = useState<number | null>(null);
   const [dragStartX, setDragStartX] = useState(0);
@@ -194,14 +199,10 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
     return 0;
   }, [mergedChords, totalDuration]);
 
-  const progressionChords = useMemo(
-    () => Array.from(new Set(chords.map((c) => c.chord))),
-    [chords]
-  );
-
+  // Command palette suggestions
   const renderSuggestionList = (mergedChord: MergedChord) => (
     <CommandGroup heading="Suggestions">
-      {getComparableChords(mergedChord.name, { progression: progressionChords }).map((suggestion) => (
+      {getComparableChords(mergedChord.name, { progression: chords.map(c => c.chord) }).map((suggestion) => (
         <CommandItem
           key={suggestion}
           value={suggestion}
@@ -222,7 +223,26 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
   );
 
   // Determine progression root (first chord root)
-  const progressionRoot = mergedChords.length > 0 ? mergedChords[0].root : 'A';
+  const progressionChords = useMemo(
+    () => Array.from(new Set(chords.map((c) => c.chord))),
+    [chords]
+  );
+
+  // Only analyze if NOT recording. If recording, we don't know the key yet.
+  const progressionAnalysis = useMemo(() => {
+    if (isRecording) {
+      return {
+        chordScales: [],
+        progressionScales: [],
+        keySignature: '',
+        progressionType: 'other' as const
+      };
+    }
+    return analyzeProgression(progressionChords);
+  }, [progressionChords, isRecording]);
+
+  const progressionKey = progressionAnalysis.keySignature; // Can be empty string if recording
+
 
   const handleChordChange = (mergedChord: MergedChord, newChord: string) => {
     if (onChordUpdate) {
@@ -368,7 +388,8 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
               const widthPercent = effectiveDuration > 0 ? (chord.duration / effectiveDuration) * 100 : 0;
               const isCurrent = isPlaying && currentTime >= chord.time && currentTime < chord.time + chord.duration;
 
-              const colors = getChordColors(chord.root, progressionRoot);
+              const colors = getChordColors(chord.root, progressionKey);
+              const romanNumeral = getRomanNumeral(chord.name, progressionKey);
 
               return (
                 <React.Fragment key={index}>
@@ -391,7 +412,10 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
                           <div className={`text-center font-bold text-lg ${isCurrent ? colors.activeText : colors.text}`}>
                             {chord.name}
                           </div>
-                          <div className={`text-xs mt-1 font-medium ${isCurrent ? colors.activeSubText : colors.subText}`}>
+                          <div className={`text-xs mt-0.5 font-bold opacity-80 ${isCurrent ? colors.activeSubText : colors.subText}`}>
+                            {romanNumeral}
+                          </div>
+                          <div className={`text-[10px] mt-0.5 font-medium ${isCurrent ? colors.activeSubText : colors.subText}`}>
                             {Math.round(chord.duration)}s
                           </div>
 
@@ -436,41 +460,6 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
           )}
         </div>
       </div>
-
-      {/* Chord list */}
-      {
-        mergedChords.length > 0 && (
-          <div className="mt-6 flex flex-wrap gap-2 justify-center">
-            {mergedChords.map((chord, index) => {
-              const isCurrent = isPlaying && currentTime >= chord.time && currentTime < chord.time + chord.duration;
-              const colors = getChordColors(chord.root, progressionRoot);
-              return (
-                <Popover key={index}>
-                  <PopoverTrigger asChild>
-                    <div
-                      className={`px-4 py-2 rounded-full text-sm font-bold transition-all border cursor-pointer hover:scale-105 ${isCurrent
-                        ? colors.activeBadge
-                        : colors.badge
-                        }`}
-                    >
-                      {chord.name}
-                    </div>
-                  </PopoverTrigger>
-                  <PopoverContent className="p-0 w-52">
-                    <Command>
-                      <CommandInput placeholder="Change chord..." />
-                        <CommandList>
-                          <CommandEmpty>No matching chord found.</CommandEmpty>
-                          {renderSuggestionList(chord)}
-                        </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              );
-            })}
-          </div>
-        )
-      }
     </div >
   );
 };

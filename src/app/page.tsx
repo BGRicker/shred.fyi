@@ -51,6 +51,9 @@ export default function Home() {
   const [scaleMode, setScaleMode] = useState<'fixed' | 'follow'>('fixed');
   const [isLogoHovered, setIsLogoHovered] = useState(false);
 
+  const [isFocusMode, setIsFocusMode] = useState(false);
+  const [focusRange, setFocusRange] = useState([4, 8]);
+
   // Per-chord scale overrides for Follow mode
   const [chordScaleOverrides, setChordScaleOverrides] = useState<Map<string, string>>(new Map());
   const [currentChordTimestamp, setCurrentChordTimestamp] = useState<number | null>(null);
@@ -314,6 +317,10 @@ export default function Home() {
             currentChordName={currentPlaybackChord || (detectedChords.length > 0 ? detectedChords[detectedChords.length - 1].chord : undefined)}
             scaleMode={scaleMode}
             onScaleModeChange={setScaleMode}
+            isFocusMode={isFocusMode}
+            onFocusModeChange={setIsFocusMode}
+            focusRange={focusRange}
+            onFocusRangeChange={setFocusRange}
           />
         </motion.div>
 
@@ -332,6 +339,8 @@ export default function Home() {
             chordMomentScaleName={currentPlaybackChord ? `${currentPlaybackChord} Scale` : undefined}
             chordMomentNotes={chordMomentNotes}
             currentChordName={currentPlaybackChord}
+            isFocusMode={isFocusMode}
+            focusRange={focusRange}
           />
         </motion.div>
       </div>

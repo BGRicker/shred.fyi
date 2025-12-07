@@ -599,6 +599,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
           currentTime={currentTime}
           totalDuration={totalDuration}
           isPlaying={isPlaying}
+          isRecording={isRecording || isArmed || isProcessingAudio}
           onChordUpdate={handleChordUpdate}
           onTimingAdjust={handleTimingAdjust}
         />
