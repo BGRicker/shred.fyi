@@ -268,8 +268,11 @@ function calculateChordFitScore(progressionChords: string[], keyData: any): numb
   // Flatten valid chords from keyData
   const validChords = new Set<string>();
 
-  // Add diatonic chords
-  (keyData.chords || keyData.natural?.chords || []).forEach((c: string) => validChords.add(c));
+  // Add diatonic chords from natural, harmonic, and melodic scales
+  (keyData.chords || []).forEach((c: string) => validChords.add(c));
+  (keyData.natural?.chords || []).forEach((c: string) => validChords.add(c));
+  (keyData.harmonic?.chords || []).forEach((c: string) => validChords.add(c));
+  (keyData.melodic?.chords || []).forEach((c: string) => validChords.add(c));
 
   // Add secondary dominants (only available on majorKey consistently in some versions, check field existence)
   if (keyData.secondaryDominants) {
@@ -304,12 +307,13 @@ function calculateChordFitScore(progressionChords: string[], keyData: any): numb
 
     // 1. Direct check in valid list
     for (const valid of validChords) {
-      if (valid === pName) { isMatch = true; break; }
-
-      // Check if it's the triad version (e.g. valid Cmaj7, playing C)
-      if (valid.startsWith(pName)) { isMatch = true; break; }
-
-      // Check if it's the 7th version (e.g. valid C, playing Cmaj7? Less likely to fit perfectly but usually okay)
+      // Symmetrical check:
+      // - User plays "C", key has "Cmaj7" -> valid.startsWith(pName) -> match
+      // - User plays "Cmaj7", key has "C" -> pName.startsWith(valid) -> match
+      if (valid.startsWith(pName) || pName.startsWith(valid)) {
+        isMatch = true;
+        break;
+      }
     }
 
     // 2. Special handling for Blues allowance in Major Key
@@ -592,9 +596,15 @@ export function getRomanNumeral(chordSymbol: string, key: string): string {
     let baseNumeral = numeralMap[diff] || '?';
     const quality = chord.quality;
 
-    // Lowercase for minor/diminished
-    if (quality === 'Minor' || quality === 'Diminished') {
+    // Adjust case and add symbols based on quality
+    if (quality === 'Minor') {
       baseNumeral = baseNumeral.toLowerCase();
+    } else if (quality === 'Diminished') {
+      baseNumeral = baseNumeral.toLowerCase() + '°';
+    } else if (chord.quality === 'Augmented') {
+      baseNumeral = baseNumeral.toUpperCase() + '+';
+    } else if (chord.type === 'half-diminished seventh' || chord.aliases.includes('m7b5')) {
+      baseNumeral = baseNumeral.toLowerCase() + 'ø';
     }
 
     // Add 7 if it's a 7th chord (dominant, major 7, minor 7)
