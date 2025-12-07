@@ -31,16 +31,21 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
   const [timingAdjustments, setTimingAdjustments] = useState<Map<number, number>>(new Map());
 
   // Audio recording state
-  const [, setIsRecordingAudio] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [isArmed, setIsArmed] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   // Silence detection settings
   const [trimSilenceThreshold] = useState(0.0005);
+  const TRIGGER_THRESHOLD = 0.02; // Threshold to start recording
 
   const startTimeRef = useRef<number>(0);
   const audioUrlRef = useRef<string | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // --- REDESIGNED AUDIO STATE for drift-free looping ---
   const [isAudioReady, setIsAudioReady] = useState(false);
@@ -53,6 +58,8 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
 
   const lastEmittedPlaybackChordRef = useRef<string | null>(null);
   const MIN_SECTION_DURATION = 0.5;
+
+  // ... (buildSegments and applyTimingAdjustments remain unchanged)
 
   const buildSegments = useCallback((
     chords: Array<{ chord: string; timestamp: number }>,
@@ -226,20 +233,14 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
         audioContextRef.current.close();
         audioContextRef.current = null;
       }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
     };
   }, [stopWebAudioLoop]);
 
-  // Handle recording start
-  const handleStartRecording = async () => {
-    if (!audioContextRef.current) return;
-
-    // Resume context if suspended
-    if (audioContextRef.current.state === 'suspended') {
-      await audioContextRef.current.resume();
-    }
-
+  const startRecordingActual = useCallback((stream: MediaStream) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       const chunks: Blob[] = [];
 
@@ -275,24 +276,100 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
 
         setIsProcessingAudio(false);
         setIsRecordingAudio(false);
+        setIsArmed(false);
 
-        stream.getTracks().forEach(track => track.stop()); // Stop microphone stream
+        // Clean up connections but keep stream active if needed? No, we stop tracks below.
+        // Actually, we should probably stop the stream to release the mic
+        stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start();
       mediaRecorderRef.current = mediaRecorder;
       setIsRecordingAudio(true);
+      setIsArmed(false); // No longer just armed, we are rolling
       startTimeRef.current = Date.now();
 
       // Start external recording logic (chord detection)
       onStartRecording();
 
     } catch (err) {
-      console.error('Error accessing microphone:', err);
+      console.error('Error starting MediaRecorder:', err);
+    }
+  }, [onStartRecording]);
+
+  // Handle arming and auto-start
+  const handleStartRecording = async () => {
+    if (!audioContextRef.current) return;
+
+    // Resume context if suspended
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // Setup Analyser for threshold detection
+      const audioContext = audioContextRef.current;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      setIsArmed(true);
+
+      const bufferLength = analyser.fftSize;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const checkAudioLevel = () => {
+        if (!analyserRef.current) return;
+
+        analyserRef.current.getByteTimeDomainData(dataArray);
+
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          const x = (dataArray[i] - 128) / 128.0;
+          sum += x * x;
+        }
+        const rms = Math.sqrt(sum / bufferLength);
+
+        if (rms > TRIGGER_THRESHOLD) {
+          // Trigger Recording
+          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+          if (stream) startRecordingActual(stream);
+        } else {
+          animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+        }
+      };
+
+      checkAudioLevel();
+
+    } catch (err) {
+      console.error('Error during recording setup:', err);
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      setIsArmed(false);
     }
   };
 
   const handleStopRecording = () => {
+    // If waiting for trigger, just cancel
+    if (isArmed) {
+      setIsArmed(false);
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+
+      // Cleanup stream if we are just cancelling arm
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      return;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       onStopRecording();
@@ -482,14 +559,22 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
     <div className="bg-white/90 backdrop-blur-md rounded-3xl p-8 shadow-2xl shadow-green-900/20 border-2 border-white">
       {/* Playback Controls at Top */}
       <PlaybackControls
-        isRecording={isRecording}
+        isRecording={isRecording || isArmed}
         isPlaying={isPlaying}
         hasRecording={detectedChords.length > 0}
-        onRecord={isRecording ? handleStopRecording : handleStartRecording}
+        onRecord={isRecording || isArmed ? handleStopRecording : handleStartRecording}
         onPlay={handlePlayPause}
         onStop={handleStop}
         onReset={handleReset}
       />
+
+      {isArmed && (
+        <div className="mt-6 text-center">
+          <span className="text-red-600 text-sm bg-red-50 py-2 px-4 rounded-full inline-block animate-pulse border border-red-200 font-medium">
+            ●  Armed - Waiting for sound...
+          </span>
+        </div>
+      )}
 
       {isRecording && (
         <div className="mt-6 text-center">
