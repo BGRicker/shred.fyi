@@ -25,6 +25,8 @@ interface FretboardComponentProps {
   chordMomentNotes?: string[];
   currentChordName?: string | null;
   className?: string;
+  isFocusMode?: boolean;
+  focusRange?: number[];
 }
 
 interface ScaleInfo {
@@ -105,6 +107,8 @@ export default function FretboardComponent({
   highlightMode = 'both',
   currentChordName,
   className = '',
+  isFocusMode = false,
+  focusRange = [4, 8],
 }: FretboardComponentProps) {
   const scale = useMemo(
     () =>
@@ -160,6 +164,11 @@ export default function FretboardComponent({
   }, []);
 
   const getNoteInfo = (stringIndex: number, fret: number): NoteInfo | null => {
+    // FOCUS MODE: If in focus mode and outside the range, do not show the note.
+    if (isFocusMode && (fret < focusRange[0] || fret > focusRange[1])) {
+      return null;
+    }
+
     if (!scale) return null;
     const note = getFretNote(stringIndex, fret);
     const normalized = normalizeNoteToSharp(note);
@@ -193,13 +202,27 @@ export default function FretboardComponent({
     );
   }
 
+  const minFret = isFocusMode ? focusRange[0] : 0;
+  const maxFret = isFocusMode ? focusRange[1] : numFrets - 1;
+  const displayedFrets = Array.from(
+    { length: maxFret - minFret + 1 },
+    (_, i) => minFret + i
+  );
+
   return (
     <div
       className={`w-full bg-gradient-to-br from-amber-50 via-yellow-50/80 to-amber-50 backdrop-blur-md rounded-3xl p-8 shadow-2xl shadow-amber-900/20 border-2 border-amber-200 ${className}`}
     >
       <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
         <div>
-          <h2 className="text-amber-900">Fretboard Visualization</h2>
+          <h2 className="text-amber-900 flex items-center gap-2">
+            Fretboard Visualization
+            {isFocusMode && (
+              <span className="text-xs px-2 py-0.5 bg-amber-100/50 text-amber-700/80 rounded-full border border-amber-200/50">
+                Focus Mode
+              </span>
+            )}
+          </h2>
           <p className="text-sm text-amber-800/70">
             {highlightMode === 'chord' && chordMomentScaleName
               ? `Chord of the moment: ${chordMomentScaleName}`
@@ -207,31 +230,33 @@ export default function FretboardComponent({
           </p>
         </div>
 
-        <div className="flex items-center gap-4 text-xs flex-wrap bg-white/70 px-4 py-2 rounded-2xl border border-amber-200/80">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-green-600 shadow-lg shadow-green-600/50 flex items-center justify-center text-[10px] text-white">
-              1
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 text-xs flex-wrap bg-white/70 px-4 py-2 rounded-2xl border border-amber-200/80">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-green-600 shadow-lg shadow-green-600/50 flex items-center justify-center text-[10px] text-white">
+                1
+              </div>
+              <span className="text-amber-800">Root</span>
             </div>
-            <span className="text-amber-800">Root</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-amber-500 shadow-lg shadow-amber-600/40 flex items-center justify-center text-[10px] text-white">
-              ♭3/3
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-amber-500 shadow-lg shadow-amber-600/40 flex items-center justify-center text-[10px] text-white">
+                ♭3/3
+              </div>
+              <span className="text-amber-800">Chord 3rd</span>
             </div>
-            <span className="text-amber-800">Chord 3rd</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-teal-500 shadow-lg shadow-teal-600/40 flex items-center justify-center text-[10px] text-white">
-              5
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-teal-500 shadow-lg shadow-teal-600/40 flex items-center justify-center text-[10px] text-white">
+                5
+              </div>
+              <span className="text-amber-800">Chord 5th</span>
             </div>
-            <span className="text-amber-800">Chord 5th</span>
-          </div>
-          <div className="h-6 w-px bg-amber-300/70" />
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-amber-200 border border-amber-400 flex items-center justify-center text-[9px] text-amber-700">
-              ●
+            <div className="h-6 w-px bg-amber-300/70" />
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-amber-200 border border-amber-400 flex items-center justify-center text-[9px] text-amber-700">
+                ●
+              </div>
+              <span className="text-amber-800/70">Other scale notes</span>
             </div>
-            <span className="text-amber-800/70">Other scale notes</span>
           </div>
         </div>
       </div>
@@ -245,7 +270,7 @@ export default function FretboardComponent({
                 className="flex-shrink-0 text-center text-xs text-amber-700/60"
                 style={{ width: `${fretWidth}px` }}
               >
-                {fretIndex === 0 ? '' : fretIndex}
+                {fretIndex === 0 ? 'Nut' : fretIndex}
               </div>
             ))}
           </div>
@@ -265,7 +290,10 @@ export default function FretboardComponent({
 
             <div
               className="ml-8 relative bg-gradient-to-r from-amber-200/30 to-yellow-100/30 rounded-xl p-2"
-              style={{ height: `${stringSpacing * numStrings}px` }}
+              style={{
+                height: `${stringSpacing * numStrings}px`,
+                width: `${numFrets * fretWidth}px`
+              }}
             >
               <div className="absolute inset-0 flex">
                 {Array.from({ length: numFrets }).map((_, fretIndex) => (

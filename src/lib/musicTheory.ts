@@ -1,4 +1,4 @@
-import { Chord, Scale, Note } from 'tonal';
+import { Chord, Scale, Note, Key } from 'tonal';
 import { ScaleSuggestion } from '@/types/music';
 
 // Result of analyzing a chord progression
@@ -191,32 +191,131 @@ export function analyzeProgression(chordSymbols: string[]): ProgressionAnalysis 
 function detectProgressionType(chordSymbols: string[]): { progressionType: 'blues' | 'major' | 'minor' | 'other'; tonic: string | null } {
   if (chordSymbols.length === 0) return { progressionType: 'other', tonic: null };
 
-  const roots = chordSymbols
-    .map(symbol => Chord.get(symbol).tonic)
-    .filter(Boolean) as string[];
+  const roots = chordSymbols.map(s => Chord.get(s).tonic).filter(Boolean) as string[];
+  const uniqueRoots = new Set(roots);
+  const firstRoot = roots[0];
+  const lastRoot = roots[roots.length - 1];
+  const uniqueChords = Array.from(new Set(chordSymbols));
 
-  const firstRoot = roots[0] || null;
-  const fourth = firstRoot ? Note.transpose(firstRoot, '4P') : null;
-  const fifth = firstRoot ? Note.transpose(firstRoot, '5P') : null;
+  // Score all 12 major and minor keys using Tonal's key data
 
-  const hasIV = fourth ? roots.includes(fourth) : false;
-  const hasV = fifth ? roots.includes(fifth) : false;
-  const looksBlues = Boolean(firstRoot && hasIV && hasV);
+  // 2. Score all 12 major and minor keys
+  let bestKey = { tonic: '', type: 'other' as 'major' | 'minor' | 'other', score: -1 };
 
-  if (looksBlues) {
-    return { progressionType: 'blues', tonic: firstRoot };
+  const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+  notes.forEach(root => {
+    // Check Major
+    const majorKey = Key.majorKey(root);
+    const majorScore = calculateChordFitScore(uniqueChords, { ...majorKey, type: 'major' });
+    const majorFinal = applyHeuristics(majorScore, root, uniqueRoots, firstRoot, lastRoot);
+
+    if (majorFinal > bestKey.score) {
+      bestKey = { tonic: root, type: 'major', score: majorFinal };
+    }
+
+    // Check Minor
+    const minorKey = Key.minorKey(root);
+    // Minor keys in Tonal are complex (natural, harmonic, melodic). 
+    // For pop/rock/jazz compatibility, natural minor + harmonic V7 is standard.
+    // We'll check against natural minor chords + secondary dominants if available (Tonal minorKey has less data than majorKey usually).
+    const minorScore = calculateChordFitScore(uniqueChords, { ...minorKey, type: 'minor' });
+    const minorFinal = applyHeuristics(minorScore, root, uniqueRoots, firstRoot, lastRoot);
+
+    if (minorFinal > bestKey.score) {
+      bestKey = { tonic: root, type: 'minor', score: minorFinal };
+    }
+  });
+
+  if (bestKey.tonic) {
+    return { progressionType: bestKey.type, tonic: bestKey.tonic };
   }
 
-  // Infer from first chord quality
-  const firstChord = Chord.get(chordSymbols[0]);
-  if (firstChord.quality === 'Minor') {
-    return { progressionType: 'minor', tonic: firstRoot };
-  }
-  if (firstChord.quality === 'Major' || firstChord.type === 'major seventh') {
-    return { progressionType: 'major', tonic: firstRoot };
+  // Fallback
+  return { progressionType: 'other', tonic: firstRoot || null };
+}
+
+function applyHeuristics(baseScore: number, keyRoot: string, uniqueRoots: Set<string>, firstRoot: string, lastRoot: string): number {
+  let score = baseScore;
+
+  // Bonus: Key tonic is present in the progression
+  if (uniqueRoots.has(keyRoot)) score += 0.25;
+
+  // Bonus: Start on tonic (Primary indicator for modern loops/blues)
+  // Increased to overpowering weight to prevent V-I ambiguity (e.g. A7-D7 looking like V-I in D)
+  if (keyRoot === firstRoot) score += 0.35;
+
+  // Bonus: End on tonic (weaker indicator in infinite loops)
+  if (keyRoot === lastRoot) score += 0.10;
+
+  return score;
+}
+
+function calculateChordFitScore(progressionChords: string[], keyData: any): number {
+  let matchCount = 0;
+  // valid chords: diatonic chords + secondary dominants
+  // Note: Tonal's chords are often specific voicings ("Cmaj7"), but user might play "C".
+  // We should check root and function/quality compatibility.
+
+  // Flatten valid chords from keyData
+  const validChords = new Set<string>();
+
+  // Add diatonic chords from natural, harmonic, and melodic scales
+  (keyData.chords || []).forEach((c: string) => validChords.add(c));
+  (keyData.natural?.chords || []).forEach((c: string) => validChords.add(c));
+  (keyData.harmonic?.chords || []).forEach((c: string) => validChords.add(c));
+  (keyData.melodic?.chords || []).forEach((c: string) => validChords.add(c));
+
+  // Add secondary dominants (only available on majorKey consistently in some versions, check field existence)
+  if (keyData.secondaryDominants) {
+    keyData.secondaryDominants.forEach((c: string) => { if (c) validChords.add(c); });
   }
 
-  return { progressionType: 'other', tonic: firstRoot };
+  // Check each progression chord against the key's valid chords
+  progressionChords.forEach(pch => {
+    const pChord = Chord.get(pch);
+    const pName = pChord.symbol;
+
+    let isMatch = false;
+
+    // 1. Direct check in valid list
+    for (const valid of validChords) {
+      // Symmetrical check:
+      // - User plays "C", key has "Cmaj7" -> valid.startsWith(pName) -> match
+      // - User plays "Cmaj7", key has "C" -> pName.startsWith(valid) -> match
+      if (valid.startsWith(pName) || pName.startsWith(valid)) {
+        isMatch = true;
+        break;
+      }
+    }
+
+    // 2. Special handling for Blues allowance in Major Key
+    if (!isMatch) {
+      if (keyData.type === 'major') {
+        // I7 - Blues Tonic
+        if (pChord.tonic === keyData.tonic && (pChord.type === 'dominant seventh' || pChord.aliases.includes('7'))) {
+          isMatch = true;
+        }
+
+        // IV7
+        const tonic = keyData.tonic;
+        const ivRoot = Note.transpose(tonic, '4P');
+        if (pChord.tonic === ivRoot && (pChord.type === 'dominant seventh' || pChord.aliases.includes('7'))) {
+          isMatch = true;
+        }
+
+        // bVII7 (Mixolydian borrowing) - frequent in Rock/Blues
+        const bVIIRoot = Note.transpose(tonic, 'm7');
+        if (pChord.tonic === bVIIRoot) {
+          isMatch = true;
+        }
+      }
+    }
+
+    if (isMatch) matchCount++;
+  });
+
+  return progressionChords.length > 0 ? matchCount / progressionChords.length : 0;
 }
 
 /**
@@ -427,5 +526,65 @@ export function getComparableChords(
     return suggestions;
   } catch {
     return (options?.progression ?? []).filter(p => p !== chordSymbol);
+  }
+}
+
+/**
+ * Get Roman Numeral for a chord in a given key
+ */
+export function getRomanNumeral(chordSymbol: string, key: string): string {
+  try {
+    const chord = Chord.get(chordSymbol);
+    const keyNote = Note.get(key);
+
+    if (chord.empty || keyNote.empty) return '';
+
+    const root = chord.tonic;
+    if (!root) return '';
+
+    // Calculate interval from key to chord root
+    // Using chroma simplifies the handling of accidentals for display
+    const rootChrom = Note.chroma(root);
+    const keyChrom = Note.chroma(key);
+
+    if (rootChrom === undefined || keyChrom === undefined) return '';
+
+    const diff = (rootChrom - keyChrom + 12) % 12;
+
+    const numeralMap: Record<number, string> = {
+      0: 'I',
+      1: 'bII',
+      2: 'II',
+      3: 'bIII',
+      4: 'III',
+      5: 'IV',
+      6: 'bV',
+      7: 'V',
+      8: 'bVI',
+      9: 'VI',
+      10: 'bVII',
+      11: 'VII'
+    };
+
+    let baseNumeral = numeralMap[diff] || '?';
+    const quality = chord.quality;
+
+    // Adjust case and add symbols based on quality
+    if (quality === 'Minor') {
+      baseNumeral = baseNumeral.toLowerCase();
+    } else if (quality === 'Diminished') {
+      baseNumeral = baseNumeral.toLowerCase() + '°';
+    } else if (chord.quality === 'Augmented') {
+      baseNumeral = baseNumeral.toUpperCase() + '+';
+    } else if (chord.type === 'half-diminished seventh' || chord.aliases.includes('m7b5')) {
+      baseNumeral = baseNumeral.toLowerCase() + 'ø';
+    }
+
+    // Add 7 if it's a 7th chord (dominant, major 7, minor 7)
+    // This is optional but nice. Let's keep it simple for now as requested (intervals off root)
+
+    return baseNumeral;
+  } catch {
+    return '';
   }
 }

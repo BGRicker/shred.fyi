@@ -1,6 +1,7 @@
+import { Slider } from '@/components/ui/slider';
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ScanEye, Eye } from 'lucide-react';
 import { ScaleSuggestion } from '@/types/music';
 
 interface ScaleSuggestionsProps {
@@ -10,6 +11,10 @@ interface ScaleSuggestionsProps {
   currentChordName?: string;
   scaleMode?: 'fixed' | 'follow';
   onScaleModeChange?: (mode: 'fixed' | 'follow') => void;
+  isFocusMode?: boolean;
+  onFocusModeChange?: (isFocus: boolean) => void;
+  focusRange?: number[];
+  onFocusRangeChange?: (range: number[]) => void;
 }
 
 const ScaleSuggestions: React.FC<ScaleSuggestionsProps> = ({
@@ -18,7 +23,11 @@ const ScaleSuggestions: React.FC<ScaleSuggestionsProps> = ({
   onScaleSelect,
   currentChordName,
   scaleMode = 'fixed',
-  onScaleModeChange
+  onScaleModeChange,
+  isFocusMode = false,
+  onFocusModeChange,
+  focusRange = [4, 8],
+  onFocusRangeChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -30,7 +39,7 @@ const ScaleSuggestions: React.FC<ScaleSuggestionsProps> = ({
 
   return (
     <div className="w-full bg-white/90 backdrop-blur-md rounded-3xl p-6 shadow-2xl shadow-green-900/20 border-2 border-white relative z-30">
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4 mb-4">
         {/* Mode Toggle */}
         {onScaleModeChange && (
           <>
@@ -57,7 +66,7 @@ const ScaleSuggestions: React.FC<ScaleSuggestionsProps> = ({
             </div>
 
             {/* Divider */}
-            <div className="h-10 w-px bg-green-300/50"></div>
+            <div className="h-10 w-px bg-green-300/50 hidden md:block"></div>
           </>
         )}
 
@@ -115,30 +124,85 @@ const ScaleSuggestions: React.FC<ScaleSuggestionsProps> = ({
         {/* Current Chord */}
         {currentChordName && (
           <>
-            <div className="h-10 w-px bg-green-300/50"></div>
+            <div className="h-10 w-px bg-green-300/50 hidden md:block"></div>
             <div className="text-sm text-green-700 bg-green-50/80 px-4 py-3 rounded-2xl border border-green-200 font-medium">
               Now playing: <span className="text-green-900 font-bold">{currentChordName}</span>
             </div>
           </>
         )}
+      </div>
 
-        {/* Divider */}
-        <div className="h-10 w-px bg-green-300/50"></div>
-
+      {/* Second Row: Notes & Focus Mode */}
+      <div className="flex flex-wrap items-center gap-4 border-t border-green-100 pt-4">
         {/* Scale Notes */}
-        <div className="flex items-center gap-3 bg-green-50/80 px-4 py-3 rounded-2xl border border-green-200">
-          <span className="text-sm text-green-700 font-bold">Notes:</span>
+        <div className="flex items-center gap-3 bg-green-50/80 px-4 py-2 rounded-2xl border border-green-200 flex-1 min-w-[200px]">
+          <span className="text-sm text-green-700 font-bold shrink-0">Notes:</span>
           <div className="flex flex-wrap gap-1.5">
-            {selectedScale.notes.map((note, index) => (
-              <div
-                key={index}
-                className="px-3 py-1 bg-white text-green-800 rounded-full text-xs font-bold border-2 border-green-300 shadow-sm"
-              >
-                {note}
-              </div>
-            ))}
+            {selectedScale.notes.map((note, index) => {
+              // Basic interval formatting
+              let interval = selectedScale.intervals?.[index] || '';
+              if (interval === '1P') interval = 'R';
+              else {
+                // Remove Perfect and Major markers, then convert minor to flat
+                interval = interval.replace('P', '').replace(/^m/, '♭').replace('M', '');
+              }
+
+              return (
+                <div
+                  key={index}
+                  className="px-3 py-1.5 bg-white text-green-800 rounded-xl text-xs font-bold border-2 border-green-300 shadow-sm flex items-center gap-2"
+                >
+                  <span className="text-sm">{note}</span>
+                  <span className="text-xs text-green-600 font-bold opacity-80">{interval}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
+
+        {/* Divider */}
+        <div className="h-10 w-px bg-green-300/50 hidden md:block"></div>
+
+        {/* Focus Mode Controls */}
+        {onFocusModeChange && onFocusRangeChange && (
+          <div className="flex items-center gap-4 bg-amber-50/80 px-4 py-2 rounded-2xl border border-amber-200 min-w-[300px]">
+            <button
+              onClick={() => onFocusModeChange(!isFocusMode)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-bold transition-all border-2 shrink-0 ${isFocusMode
+                ? 'bg-amber-400 border-amber-500 text-amber-900 shadow-lg shadow-amber-500/20'
+                : 'bg-white border-amber-200 text-amber-800 hover:bg-amber-100'
+                }`}
+            >
+              {isFocusMode ? <ScanEye className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {isFocusMode ? 'Focus On' : 'Focus Mode'}
+            </button>
+
+            <AnimatePresence>
+              {isFocusMode && (
+                <motion.div
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
+                  className="flex-1 flex flex-col gap-1 overflow-hidden min-w-[150px]"
+                >
+                  <Slider
+                    defaultValue={[4, 8]}
+                    max={15}
+                    min={0}
+                    step={1}
+                    value={focusRange}
+                    onValueChange={onFocusRangeChange}
+                    className="py-1 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-amber-800/60 px-1 font-medium">
+                    <span>Fret {focusRange[0]}</span>
+                    <span>Fret {focusRange[1]}</span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
     </div>
   );
