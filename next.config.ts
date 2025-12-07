@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   // Fix lockfile warning by setting output file tracing root
   outputFileTracingRoot: process.cwd(),
 
+  // Enable Turbopack compatibility mode
+  turbopack: {},
+
   webpack: (config) => {
     // Add externals for optional dependencies
     if (!config.externals) {
