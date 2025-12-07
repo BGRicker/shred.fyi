@@ -143,7 +143,8 @@ const ScaleSuggestions: React.FC<ScaleSuggestionsProps> = ({
               let interval = selectedScale.intervals?.[index] || '';
               if (interval === '1P') interval = 'R';
               else {
-                interval = interval.replace('M', '').replace('P', '').replace('m', '♭');
+                // Remove Perfect and Major markers, then convert minor to flat
+                interval = interval.replace('P', '').replace(/^m/, '♭').replace('M', '');
               }
 
               return (

@@ -197,15 +197,7 @@ function detectProgressionType(chordSymbols: string[]): { progressionType: 'blue
   const lastRoot = roots[roots.length - 1];
   const uniqueChords = Array.from(new Set(chordSymbols));
 
-  // 1. Gather all unique chromatics from the progression
-  // const chromatics = new Set<string>();
-  // chordSymbols.forEach(symbol => {
-  //   const chord = Chord.get(symbol);
-  //   chord.notes.forEach(n => {
-  //     const chroma = Note.chroma(n);
-  //     if (typeof chroma === 'number') chromatics.add(String(chroma));
-  //   });
-  // });
+  // Score all 12 major and minor keys using Tonal's key data
 
   // 2. Score all 12 major and minor keys
   let bestKey = { tonic: '', type: 'other' as 'major' | 'minor' | 'other', score: -1 };
@@ -279,29 +271,10 @@ function calculateChordFitScore(progressionChords: string[], keyData: any): numb
     keyData.secondaryDominants.forEach((c: string) => { if (c) validChords.add(c); });
   }
 
-  // Helper to normalize chord for comparison: Root + Quality roughly
-  // Or just check if the progression chord is "Functional" in this key.
-
-  // Simple approach: Check if chord ROOT is in scale, and if chord notes fit well?
-  // User wants "Tonal" logic, so let's trust Tonal's lists.
-
-  // If exact match fails, fallback to Root check? 
-  // No, A7 vs Amaj7 is distinct.
-
-  // Let's iterate progression chords and see if they "fit"
+  // Check each progression chord against the key's valid chords
   progressionChords.forEach(pch => {
-    // Check exact match (ignoring extensions sometimes?)
-    // Simplify: check if PC is in validChords set.
-    // Normalize both to remove potential formatting diffs?
-    // Tonal normalized output: "Cmaj7", "Dm7".
-    // Input might be "C", "Cmaj7", "C7".
-
-    // If input is "A7" and valid has "A7", that's a match.
-    // If input is "D7" and valid has "D7", match.
-
-    const pChord = Chord.get(pch); // normalized
-    const pName = pChord.symbol; // e.g. "A7"
-    const pSimplified = pName.replace('7', ''); // "A" for simple triad check?
+    const pChord = Chord.get(pch);
+    const pName = pChord.symbol;
 
     let isMatch = false;
 

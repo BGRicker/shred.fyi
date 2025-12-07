@@ -28,8 +28,6 @@ interface ChordProgressionProps {
   onTimingAdjust?: (chordIndex: number, newBoundaryTime: number) => void;
 }
 
-// ... props interface ...
-
 interface MergedChord {
   name: string;
   root: string;
@@ -412,9 +410,11 @@ const ChordProgression: React.FC<ChordProgressionProps> = ({
                           <div className={`text-center font-bold text-lg ${isCurrent ? colors.activeText : colors.text}`}>
                             {chord.name}
                           </div>
-                          <div className={`text-xs mt-0.5 font-bold opacity-80 ${isCurrent ? colors.activeSubText : colors.subText}`}>
-                            {romanNumeral}
-                          </div>
+                          {progressionKey && (
+                            <div className={`text-xs mt-0.5 font-bold opacity-80 ${isCurrent ? colors.activeSubText : colors.subText}`}>
+                              {romanNumeral}
+                            </div>
+                          )}
                           <div className={`text-[10px] mt-0.5 font-medium ${isCurrent ? colors.activeSubText : colors.subText}`}>
                             {Math.round(chord.duration)}s
                           </div>
