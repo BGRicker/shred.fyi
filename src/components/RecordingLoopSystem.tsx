@@ -306,8 +306,9 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       await audioContextRef.current.resume();
     }
 
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
       // Setup Analyser for threshold detection
@@ -320,7 +321,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
 
       setIsArmed(true);
 
-      const bufferLength = analyser.frequencyBinCount;
+      const bufferLength = analyser.fftSize;
       const dataArray = new Uint8Array(bufferLength);
 
       const checkAudioLevel = () => {
@@ -338,7 +339,7 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
         if (rms > TRIGGER_THRESHOLD) {
           // Trigger Recording
           if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-          startRecordingActual(stream);
+          if (stream) startRecordingActual(stream);
         } else {
           animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
         }
@@ -347,7 +348,11 @@ const RecordingLoopSystem: React.FC<RecordingLoopSystemProps> = ({
       checkAudioLevel();
 
     } catch (err) {
-      console.error('Error accessing microphone:', err);
+      console.error('Error during recording setup:', err);
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      setIsArmed(false);
     }
   };
 
