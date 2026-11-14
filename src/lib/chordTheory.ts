@@ -25,6 +25,7 @@ export interface ScaleMatch {
   outsideNotes: string[];
   scaleNotes: string[]; // full ordered scale notes
   scaleDegrees: string[]; // degree labels e.g. "1","2","b3"...
+  scaleIntervals: string[]; // raw tonal intervals e.g. "1P","2M","3m"...
 }
 
 // ── Degree position mapping ────────────────────────────────────────────────
@@ -44,6 +45,7 @@ const INTERVAL_TO_DEGREE: Record<string, { position: number; label: string }> = 
   '5A': { position: 4, label: '#5' },
   '6m': { position: 5, label: 'b6' },
   '6M': { position: 5, label: '6' },
+  '7d': { position: 6, label: 'bb7' },
   '7m': { position: 6, label: 'b7' },
   '7M': { position: 6, label: '7' },
   '8P': { position: 0, label: '1' },
@@ -77,10 +79,12 @@ export function parseChord(symbol: string): ParsedChord | null {
   if (!symbol.trim()) return null;
 
   // Normalize common alternate notations
+  // Δ/△/∆ → maj7, but only when NOT already followed by a digit (CΔ9 → Cmaj9, not Cmaj79)
   const normalized = symbol
-    .replace(/Δ|△|∆/g, 'maj7')
+    .replace(/[Δ△∆](?!\d)/g, 'maj7')
+    .replace(/[Δ△∆](?=\d)/g, 'maj')
     .replace(/°/g, 'dim')
-    .replace(/ø/g, 'm7b5')
+    .replace(/ø7?/g, 'm7b5')
     .replace(/−/g, 'm');
 
   const chord = Chord.get(normalized);
@@ -175,6 +179,7 @@ export function findScaleMatches(chordNotes: string[], topN = 3): ScaleMatch[] {
         outsideNotes: outside,
         scaleNotes: scale.notes,
         scaleDegrees,
+        scaleIntervals,
       });
     }
   }
@@ -212,11 +217,27 @@ export function findScaleMatches(chordNotes: string[], topN = 3): ScaleMatch[] {
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 
-export function chordDegreeInScale(chordRoot: string, scaleNotes: string[]): string | null {
+// Map interval → diatonic degree number (1-based), ignoring accidentals
+const INTERVAL_TO_DIATONIC: Record<string, number> = {
+  '1P': 1, '2m': 2, '2M': 2, '2A': 2,
+  '3m': 3, '3M': 3, '3A': 3,
+  '4P': 4, '4A': 4, '4d': 4,
+  '5d': 5, '5P': 5, '5A': 5,
+  '6m': 6, '6M': 6, '6A': 6,
+  '7d': 7, '7m': 7, '7M': 7,
+};
+
+export function chordDegreeInScale(chordRoot: string, scaleNotes: string[], scaleIntervals?: string[]): string | null {
   const rootPC = pitchClass(chordRoot);
   if (rootPC < 0) return null;
   const idx = scaleNotes.findIndex(n => pitchClass(n) === rootPC);
-  return idx >= 0 ? (ROMAN[idx] ?? null) : null;
+  if (idx < 0) return null;
+  if (scaleIntervals) {
+    const iv = scaleIntervals[idx];
+    const deg = iv ? INTERVAL_TO_DIATONIC[iv] : undefined;
+    return deg ? ROMAN[deg - 1] ?? null : null;
+  }
+  return ROMAN[idx] ?? null;
 }
 
 // ── Shared notes ───────────────────────────────────────────────────────────

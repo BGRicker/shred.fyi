@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import ChordBuilder from '@/components/ChordBuilder';
+import { Note } from 'tonal';
 import { parseChord, findScaleMatches, findSharedNotes, chordDegreeInScale, type ParsedChord, type ScaleMatch } from '@/lib/chordTheory';
 
 // ── Circle component ──────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ function ScaleMatchRow({ match, isPerfect, chordRoots }: { match: ScaleMatch; is
   const pct = Math.round(match.overlap * 100);
 
   const romanLabels = chordRoots?.flatMap(({ symbol, root }) => {
-    const roman = chordDegreeInScale(root, match.scaleNotes);
+    const roman = chordDegreeInScale(root, match.scaleNotes, match.scaleIntervals);
     return roman ? [{ symbol, roman }] : [];
   }) ?? [];
 
@@ -177,11 +178,9 @@ interface ChordRowProps {
 }
 
 function notePC(note: string): number {
-  const chromas: Record<string, number> = {
-    C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5,
-    'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11,
-  };
-  return chromas[note] ?? -1;
+  if (!note.trim()) return -2; // distinguish empty from valid enharmonic -1
+  const pc = Note.chroma(note);
+  return pc ?? -1;
 }
 
 const SCALE_PREVIEW_COUNT = 3;

@@ -64,9 +64,10 @@ function buildSymbol(root: string, suffix: string): string {
 function parseSymbolToBuilder(symbol: string): { root: string; suffix: string } | null {
   if (!symbol.trim()) return null;
   const normalized = symbol
-    .replace(/Δ|△|∆/g, 'maj7')
+    .replace(/[Δ△∆](?!\d)/g, 'maj7')
+    .replace(/[Δ△∆](?=\d)/g, 'maj')
     .replace(/°/g, 'dim')
-    .replace(/ø/g, 'm7b5')
+    .replace(/ø7?/g, 'm7b5')
     .replace(/−/g, 'm');
   const chord = Chord.get(normalized);
   if (chord.empty || !chord.tonic) return null;
@@ -124,17 +125,19 @@ export default function ChordBuilder({ label, value, onChange, error, expanded, 
 
   const handleTextChange = (val: string) => {
     setText(val);
-    const chord = Chord.get(val.replace(/Δ|△|∆/g, 'maj7').replace(/°/g, 'dim').replace(/ø/g, 'm7b5'));
+    const normalize = (s: string) => s.replace(/[Δ△∆](?!\d)/g, 'maj7').replace(/[Δ△∆](?=\d)/g, 'maj').replace(/°/g, 'dim').replace(/ø7?/g, 'm7b5');
+    const chord = Chord.get(normalize(val));
     if (!chord.empty && chord.tonic) {
       setTextValid(true);
       // Update builder state from text
       const matchRoot = ROOTS.find(r => r === chord.tonic) ?? chord.tonic ?? root;
       setRoot(matchRoot);
-      const rawSuffix = val.replace(/Δ|△|∆/g, 'maj7').replace(/°/g, 'dim').replace(/ø/g, 'm7b5').slice(chord.tonic.length);
+      const rawSuffix = normalize(val).slice(chord.tonic.length);
       setSuffix(rawSuffix);
       onChange(val);
     } else {
       setTextValid(false);
+      onChange('');
     }
   };
 
@@ -157,9 +160,7 @@ export default function ChordBuilder({ label, value, onChange, error, expanded, 
           />
           {text && (
             <span className="text-sky-500 text-xs max-w-[120px] truncate">
-              {Chord.get(text.replace(/Δ|△|∆/g, 'maj7').replace(/°/g, 'dim').replace(/ø/g, 'm7b5')).aliases[0]
-                ? Chord.get(text.replace(/Δ|△|∆/g, 'maj7').replace(/°/g, 'dim').replace(/ø/g, 'm7b5')).type
-                : ''}
+              {(() => { const n = (s: string) => s.replace(/[Δ△∆](?!\d)/g, 'maj7').replace(/[Δ△∆](?=\d)/g, 'maj').replace(/°/g, 'dim').replace(/ø7?/g, 'm7b5'); const c = Chord.get(n(text)); return c.aliases[0] ? c.type : ''; })()}
             </span>
           )}
         </div>
