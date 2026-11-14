@@ -17,6 +17,7 @@ export interface UseAudioRecordingReturn {
   startRecording: () => Promise<void>;
   stopRecording: () => void;
   clearChords: () => void;
+  setDetectedChords: (events: ChordDetectionEvent[]) => void;
   updateDetectedChord: (timestamp: number, newChord: string) => void;
 }
 
@@ -113,6 +114,19 @@ export function useAudioRecording(): UseAudioRecordingReturn {
     }));
   }, []);
 
+  const setDetectedChords = useCallback((events: ChordDetectionEvent[]) => {
+    if (currentChordTimeoutRef.current) {
+      clearTimeout(currentChordTimeoutRef.current);
+    }
+
+    setState(prev => ({
+      ...prev,
+      detectedChords: events,
+      currentChord: events.length > 0 ? events[events.length - 1].chord : null,
+      error: null,
+    }));
+  }, []);
+
   const updateDetectedChord = useCallback((timestamp: number, newChord: string) => {
     setState(prev => {
       const updatedChords = prev.detectedChords.map(event => {
@@ -163,6 +177,7 @@ export function useAudioRecording(): UseAudioRecordingReturn {
     startRecording,
     stopRecording,
     clearChords,
+    setDetectedChords,
     updateDetectedChord,
   };
 }
