@@ -201,7 +201,7 @@ function detectProgressionType(chordSymbols: string[]): { progressionType: 'blue
   // Detect blues if: the majority of unique chords are dominant 7ths AND the first chord is a dominant 7th.
   const firstChord = Chord.get(chordSymbols[0]);
   const isDominant7Chord = (c: ReturnType<typeof Chord.get>) =>
-    c.quality === 'Dominant' || c.type === 'dominant seventh' || c.aliases.includes('7');
+    c.type === 'dominant seventh' || c.aliases.includes('7');
   const isFirstDominant7 = isDominant7Chord(firstChord);
 
   if (isFirstDominant7 && uniqueChords.length >= 1) {
