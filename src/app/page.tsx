@@ -6,6 +6,8 @@ import { motion } from 'motion/react';
 import RecordingLoopSystem from '@/components/RecordingLoopSystem';
 import FretboardComponent from '@/components/FretboardComponent';
 import ScaleSuggestions from '@/components/ScaleSuggestions';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 import { useAudioRecording } from '@/hooks/useAudioRecording';
 import { analyzeProgression, getScaleSuggestions } from '@/lib/musicTheory';
 import { ScaleSuggestion } from '@/types/music';
@@ -40,7 +42,8 @@ export default function Home() {
     startRecording,
     stopRecording,
     clearChords,
-    updateDetectedChord
+    updateDetectedChord,
+    setDetectedChords
   } = useAudioRecording();
 
   const { isRecording, detectedChords } = state;
@@ -64,29 +67,40 @@ export default function Home() {
       const orderedChords = detectedChords.map(c => c.chord);
       const progressionMeta = analyzeProgression(orderedChords);
 
-      // Use the last detected chord or the current playback chord for suggestions
-      const targetChord = currentPlaybackChord || detectedChords[detectedChords.length - 1].chord;
+      let suggestions: ScaleSuggestion[] = [];
 
-      const suggestions = getScaleSuggestions(targetChord, {
-        progression: orderedChords,
-        progressionType: progressionMeta.progressionType,
-        tonic: progressionMeta.keySignature || undefined
-      });
+      if (scaleMode === 'fixed') {
+        // In Fixed mode, suggest scales that work for the ENTIRE progression
+        suggestions = progressionMeta.progressionScales;
+      } else {
+        // In Follow mode, suggest scales for the TARGET chord
+        const targetChord = currentPlaybackChord || detectedChords[detectedChords.length - 1].chord;
+        suggestions = getScaleSuggestions(targetChord, {
+          progression: orderedChords,
+          progressionType: progressionMeta.progressionType,
+          tonic: progressionMeta.keySignature || undefined
+        });
+      }
 
       setScaleSuggestions(suggestions);
 
-      // Auto-select best scale if in follow mode
-      if (scaleMode === 'follow' && suggestions.length > 0) {
-        // Prefer perfect match
-        const perfectMatch = suggestions.find(s => s.quality === 'perfect');
-        if (perfectMatch && perfectMatch.name !== activeScale) {
-          setActiveScale(perfectMatch.name);
-        } else if (!perfectMatch && suggestions[0].name !== activeScale) {
-          setActiveScale(suggestions[0].name);
+      // Auto-select best scale
+      if (suggestions.length > 0) {
+        // Only auto-switch if the current active scale is not in the new suggestions
+        // OR if we are in a mode where we want to track closely.
+        const currentIsAvailable = suggestions.some(s => s.name === activeScale);
+
+        if (!currentIsAvailable || scaleMode === 'follow') {
+          const perfectMatch = suggestions.find(s => s.quality === 'perfect');
+          if (perfectMatch) {
+            setActiveScale(perfectMatch.name);
+          } else {
+            setActiveScale(suggestions[0].name);
+          }
         }
       }
     }
-  }, [detectedChords, currentPlaybackChord, scaleMode]); // Removed activeScale to prevent loop
+  }, [detectedChords, currentPlaybackChord, scaleMode]); // activeScale not in deps to avoid loop
 
   // Calculate notes for Fretboard
   const progressionNotes = useMemo(() => {
@@ -233,6 +247,33 @@ export default function Home() {
     }
   };
 
+  const handleLoadTestProgression = () => {
+    if (isRecording) {
+      stopRecording();
+    }
+
+    const baseTimestamp = Date.now();
+    const barMs = 2000;
+    const progression = [
+      'A7', 'A7', 'A7', 'A7',
+      'D7', 'D7',
+      'A7', 'A7',
+      'E7', 'D7', 'A7', 'E7'
+    ];
+
+    const events = progression.map((chord, index) => ({
+      chord,
+      confidence: 1,
+      timestamp: baseTimestamp + index * barMs
+    }));
+
+    setChordScaleOverrides(new Map());
+    setCurrentPlaybackChord('A7');
+    setScaleMode('fixed');
+    setActiveScale('A blues');
+    setDetectedChords(events);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-200 via-emerald-50 to-green-100 p-8 relative overflow-hidden font-sans">
       {/* Floating Clouds Background */}
@@ -253,6 +294,21 @@ export default function Home() {
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
+        <div className="flex justify-between items-center">
+          <Link
+            href="/theory"
+            className="bg-white/70 hover:bg-white text-purple-700 border border-purple-200 shadow-sm px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          >
+            🎵 Chord Theory
+          </Link>
+          <Button
+            variant="secondary"
+            className="bg-white/70 hover:bg-white text-sky-700 border border-sky-200 shadow-sm"
+            onClick={handleLoadTestProgression}
+          >
+            Test: A 1-4-5 Blues
+          </Button>
+        </div>
         {/* Shred.fyi Branding Header */}
         <div className="text-center mb-8 relative">
           <motion.div

@@ -196,6 +196,30 @@ function detectProgressionType(chordSymbols: string[]): { progressionType: 'blue
   const firstRoot = roots[0];
   const lastRoot = roots[roots.length - 1];
   const uniqueChords = Array.from(new Set(chordSymbols));
+  // --- BLUES DETECTION ---
+  // A blues progression typically features dominant 7th chords on I, IV, and V.
+  // Detect blues if: the majority of unique chords are dominant 7ths AND the first chord is a dominant 7th.
+  const firstChord = Chord.get(chordSymbols[0]);
+  const isDominant7Chord = (c: ReturnType<typeof Chord.get>) =>
+    c.type === 'dominant seventh' || c.aliases.includes('7');
+  const isFirstDominant7 = isDominant7Chord(firstChord);
+
+  if (isFirstDominant7 && uniqueChords.length >= 1) {
+    let dominant7Count = 0;
+    for (const chordSym of uniqueChords) {
+      const chord = Chord.get(chordSym);
+      if (isDominant7Chord(chord)) {
+        dominant7Count++;
+      }
+    }
+
+    // If at least 50% of unique chords are dominant 7ths, treat as blues
+    const dominant7Ratio = dominant7Count / uniqueChords.length;
+    if (dominant7Ratio >= 0.5) {
+      return { progressionType: 'blues', tonic: firstChord.tonic || firstRoot };
+    }
+  }
+  // --- END BLUES DETECTION ---
 
   // Score all 12 major and minor keys using Tonal's key data
 
@@ -361,6 +385,31 @@ function getProgressionWideScales(chordSymbols: string[], progressionType: 'blue
             intervals: majorPentatonic.intervals,
             quality: 'good'
           });
+        }
+      }
+    }
+
+    // For minor progressions, recommend minor scales
+    if (progressionType === 'minor') {
+      const rootNote = tonicOverride || Chord.get(chordSymbols[0]).tonic;
+
+      if (rootNote) {
+        const naturalMinor = Scale.get(`${rootNote} minor`);
+        const minorPentatonic = Scale.get(`${rootNote} minor pentatonic`);
+        const dorian = Scale.get(`${rootNote} dorian`);
+        const harmonicMinor = Scale.get(`${rootNote} harmonic minor`);
+
+        if (naturalMinor.notes.length > 0) {
+          suggestions.push({ name: naturalMinor.name, notes: naturalMinor.notes, intervals: naturalMinor.intervals, quality: 'perfect' });
+        }
+        if (minorPentatonic.notes.length > 0) {
+          suggestions.push({ name: minorPentatonic.name, notes: minorPentatonic.notes, intervals: minorPentatonic.intervals, quality: 'perfect' });
+        }
+        if (dorian.notes.length > 0) {
+          suggestions.push({ name: dorian.name, notes: dorian.notes, intervals: dorian.intervals, quality: 'good' });
+        }
+        if (harmonicMinor.notes.length > 0) {
+          suggestions.push({ name: harmonicMinor.name, notes: harmonicMinor.notes, intervals: harmonicMinor.intervals, quality: 'good' });
         }
       }
     }
