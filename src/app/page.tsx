@@ -340,14 +340,6 @@ export default function Home() {
             <p className="text-sky-600/70 text-sm tracking-wide uppercase">
               Chord Detection & Scale Visualization
             </p>
-            <div className="flex justify-center gap-3 mt-3">
-              <Link
-                href="/theory"
-                className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg transition-colors"
-              >
-                Chord Theory
-              </Link>
-            </div>
           </motion.div>
         </div>
 
